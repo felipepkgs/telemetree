@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import LocalAuthentication
 
 @MainActor
 final class AppState: ObservableObject {
@@ -133,16 +134,41 @@ final class AppState: ObservableObject {
             return
         }
 
-        state.isExecuting = true
-        state.errorMessage = nil
-
         Task {
+            if DestructiveSQLGuard.isDestructive(sql) {
+                guard await Self.confirmDestructiveQuery() else {
+                    state.errorMessage = "Cancelled — authentication is required to run this query."
+                    return
+                }
+            }
+
+            state.isExecuting = true
+            state.errorMessage = nil
             do {
                 state.queryResult = try await connection.execute(sql: sql)
             } catch {
                 state.errorMessage = error.localizedDescription
             }
             state.isExecuting = false
+        }
+    }
+
+    /// Requires the system password or Touch ID before a destructive
+    /// query runs. Fails closed: if device-owner authentication can't be
+    /// evaluated at all (no policy available), the query is blocked.
+    private static func confirmDestructiveQuery() async -> Bool {
+        let context = LAContext()
+        var evaluationError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &evaluationError) else {
+            return false
+        }
+        do {
+            return try await context.evaluatePolicy(
+                .deviceOwnerAuthentication,
+                localizedReason: "run this query"
+            )
+        } catch {
+            return false
         }
     }
 

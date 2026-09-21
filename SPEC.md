@@ -6,16 +6,17 @@ after that point, so they survive context resets.
 
 ## Icons — Icons8 (implemented)
 
-- Style: Icons8 "ios" outline style (not "ios-filled" — that read as too
-  heavy/blobby; explicitly rejected, including a circled-plus glyph),
-  fetched from `img.icons8.com` and bundled locally under
+- Style: Icons8 "SF Black" (thick strokes, reads well at 16pt — the user's
+  pick after trying "ios-filled" first — too heavy/blobby, including a
+  circled-plus glyph — then "ios" outline — too thin, washed out at small
+  sizes). Fetched from `img.icons8.com` and bundled locally under
   `Sources/Telemetree/Resources/Icons/*.png` (no runtime network
   dependency). Loaded via `AppIcon` (`UI/AppIcon.swift`), which sets
   `isTemplate = true` so tinting works exactly like SF Symbols did before.
 - Current icon map: `add`→plus-math, `connection`→server, `database`→database,
   `table`→data-sheet (NOT the literal "table" slug — that's a kitchen
   table), `folder`→opened-folder, `document`→document, `snippet`→source-code,
-  `warning`→error, `close`→multiply (tab close button).
+  `warning`→error, `close`→multiply (tab close button), `trash`→trash.
 - Attribution: About window (Telemetree menu → About Telemetree) credits
   "Icons by Icons8" with a link to icons8.com, per Icons8's linkware
   license terms. See `UI/About/AboutWindowController.swift`.
@@ -48,11 +49,14 @@ Touch Bar panel, so the literal mechanics don't transfer — this maps the
 (toolbar/status bars, the active-tab pill, the connection-status dot)
 rather than porting it verbatim.
 
-Themes (8 total, one shared accent identity each — never reused across
-themes): **Vapor** (base/default), **Meniscus** (glassier Vapor),
-**Ulm** (Rams/Braun flat matte), **Instrument** (quiet systematic light
-mode), **Unibody** (brushed-aluminum hardware look), plus three Vapor
-material variants: **Gold**, **Silver**, **Carbon Fiber**.
+Themes (8 total in the source spec, one shared accent identity each —
+never reused across themes): **Vapor** (base/default), **Meniscus**
+(glassier Vapor), **Ulm** (Rams/Braun flat matte), **Instrument** (quiet
+systematic light mode), **Unibody** (brushed-aluminum hardware look),
+plus three Vapor material variants: **Gold**, **Silver**, **Carbon
+Fiber**. **Decision: only the Vapor family ships in Telemetree.**
+Meniscus/Ulm/Instrument/Unibody are explicitly out of scope, not just
+deferred — don't build them without a fresh ask.
 
 ### Implemented: the Vapor family (base + Gold/Silver/Carbon)
 
@@ -65,36 +69,15 @@ material variants: **Gold**, **Silver**, **Carbon Fiber**.
   Touch Bar "touch dot," and the one element that makes each theme's
   accent identity actually visible, so it got built as a proper CALayer
   view rather than just a tinted icon.
+- `UI/Theme/CarbonWeaveTexture.swift` — Carbon Fiber's crossed 45°/-45°
+  diagonal weave, baked into a 6pt tile and used as an `NSColor` pattern
+  for `Theme.barFillPaint`. Chips (the tab pill) stay flat, no weave, per
+  the source spec ("texture is a panel thing, not a chip thing").
 - Applied to: sidebar footer bar, SQL editor toolbar, results grid status
-  bar (all via `theme.barFill`/`barBorder`), and the active tab pill in
-  the tab bar (`theme.activeSegmentFill`/`activeSegmentText`).
+  bar (all via `theme.barFillPaint`/`barBorder`), and the active tab pill
+  in the tab bar (`theme.activeSegmentFill`/`activeSegmentText`).
 - Switchable via the Theme menu in the menu bar (checkmarks reflect
   current selection via `NSMenuItemValidation` on `MainWindowController`).
-- Skipped: Carbon Fiber's woven diagonal-gradient texture from the source
-  spec — just the dark tint + red accent, which is the actual identity
-  per the spec's own "one accent per theme" rule. Add the weave later via
-  a `CAGradientLayer` pattern if it's wanted.
-
-### Not yet built: Meniscus, Ulm, Instrument, Unibody
-
-For each, still needs:
-- Background material — translucent `NSVisualEffectView` vibrancy (Vapor
-  family, Unibody) vs. flat matte fill (Ulm, Instrument).
-- Corner radius per theme — ranges from sharp (Ulm, 3px) to pill-like
-  (Meniscus, 20px); Vapor family currently hardcodes 9.
-- Icon tinting — dark/glass themes keep flat white template tinting (as
-  today); light themes (Ulm, Instrument) need to invert to dark tinted
-  icons instead.
-- Typography accent — system font weight/tracking only, no custom fonts,
-  except Ulm's monospaced row labels (a deliberate exception in the
-  source spec, keep it).
-- Motion — the dot's pulse stays enabled everywhere except the two
-  "precise instrument" themes, Ulm and Instrument (static dot there).
-
-Explicitly dropped for all themes (inapplicable to a windowed macOS app):
-Touch Bar global hotkey / panel-pin behavior, the literal digitizer-tracked
-"touch dot" concept (reinterpreted as the connection-status dot above),
-any Touch-Bar-specific chrome or sizing.
 
 ## Milestone 2 addendum: sidebar search
 
@@ -105,12 +88,56 @@ Snippets sections by name (flattening matches out of their folder
 structure while a search is active; clearing the field restores the
 normal nested tree). Connections aren't filtered — no stated need for it.
 
+## Milestone 3 addendum: snippet editing, hover-delete, color labels
+
+- **Snippet editing was missing entirely** — M3 built create/rename/insert
+  for snippets but nothing ever called `SnippetStore.updateSQL`, so every
+  snippet stayed permanently empty. Fixed with
+  `UI/Snippets/SnippetEditorWindowController` (reuses
+  `SQLSyntaxHighlighter`), opened via double-click or a snippet's new
+  "Edit…" context menu item, autosaving on every keystroke like query
+  documents do.
+- **Window controller retention bug**, found via the above: both this new
+  controller and the pre-existing `NewConnectionWindowController` were
+  created as bare local variables with nothing holding a strong reference.
+  The `NSWindow` itself stayed on screen (retained while visible), but the
+  Swift controller object could be deallocated — and `NSTextView.delegate`
+  / `NSButton.target` are both weak, so typing silently stopped
+  autosaving and buttons silently stopped responding. Fixed by holding
+  real references on `SidebarViewController` (a single optional for the
+  one-at-a-time connection sheet, a snippetID-keyed dictionary for editor
+  windows, cleaned up via `NSWindow.willCloseNotification`).
+- **Hover-to-delete**: `UI/Sidebar/HoverTrackingCellView` (an
+  `NSTableCellView` subclass using `NSTrackingArea`) shows a red trash
+  button only while the pointer is over a deletable row (query
+  document/folder, snippet, snippet folder). Deleting confirms via a
+  sheet-modal `NSAlert` first.
+- **Color labels**: an 8-color fixed palette (`UI/Theme/LabelColor.swift`)
+  assignable to the same four kinds via a "Label" context-menu submenu,
+  rendered as a small colored dot in the same trailing slot the
+  connection-status dot uses (mutually exclusive — a row is never both).
+
+## Improvements (implemented)
+
+- **Destructive SQL confirmation**: `Database/DestructiveSQLGuard` flags
+  `DELETE`/`DROP`/`TRUNCATE` always, and `UPDATE` only when it has no
+  `WHERE` clause (a keyword check, not a parser — deliberately simple).
+  `AppState.executeCurrentSQL` requires `LocalAuthentication`
+  (`.deviceOwnerAuthentication` — Touch ID with password fallback) before
+  running a flagged query; fails closed if authentication can't be
+  evaluated at all, and a cancelled/failed auth blocks execution with an
+  error message rather than silently proceeding.
+- **SQL keyword autocomplete**: `NSTextView.isAutomaticTextCompletionEnabled`
+  (native, macOS 14+, zero dependencies) plus the existing
+  `NSTextViewDelegate` completions method, reusing
+  `SQLSyntaxHighlighter.keywords` as the candidate list — no separate
+  keyword list to keep in sync. Keyword-only for now, not schema-aware
+  (no table/column name completion yet — would need to query
+  `information_schema` and cache per-connection, a reasonable follow-up
+  but out of scope for "suggest keywords").
+
 ## Other follow-ups noted during development
 
-- **Security**: prompt for the system password or Touch ID
-  (`LocalAuthentication`) before executing destructive SQL (`DELETE`,
-  `DROP`, `TRUNCATE`, or `UPDATE`/`DELETE` without a `WHERE` clause).
-  User-requested, not yet implemented.
 - **Dev signing**: `swift build` produces an ad-hoc-signed binary whose
   signature changes on every rebuild, so macOS Keychain re-prompts for the
   saved connection password after each rebuild during development.

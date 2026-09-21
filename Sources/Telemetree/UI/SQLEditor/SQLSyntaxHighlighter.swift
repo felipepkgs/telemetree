@@ -11,7 +11,8 @@ import AppKit
 /// large SQL files ever becomes sluggish, scope the regex passes to the
 /// edited paragraph range instead.
 final class SQLSyntaxHighlighter: NSObject, NSTextStorageDelegate {
-    private static let keywords: Set<String> = [
+    /// Also used by SQLEditorViewController for keyword autocomplete.
+    static let keywords: Set<String> = [
         "select", "from", "where", "join", "inner", "left", "right", "outer",
         "full", "on", "and", "or", "not", "null", "is", "in", "like",
         "between", "order", "by", "group", "having", "limit", "offset", "as",

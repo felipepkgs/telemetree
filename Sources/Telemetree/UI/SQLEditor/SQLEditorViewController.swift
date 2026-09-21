@@ -63,6 +63,7 @@ final class SQLEditorViewController: NSViewController {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticTextCompletionEnabled = true
         textView.allowsUndo = true
         textView.delegate = self
         textView.textContainerInset = NSSize(width: 6, height: 6)
@@ -210,5 +211,19 @@ final class SQLEditorViewController: NSViewController {
 extension SQLEditorViewController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         appState.updateActiveSQL(textView.string)
+    }
+
+    func textView(
+        _ textView: NSTextView,
+        completions words: [String],
+        forPartialWordRange charRange: NSRange,
+        indexOfSelectedItem index: UnsafeMutablePointer<Int>?
+    ) -> [String] {
+        let partial = (textView.string as NSString).substring(with: charRange).lowercased()
+        guard !partial.isEmpty else { return [] }
+        return SQLSyntaxHighlighter.keywords
+            .filter { $0.hasPrefix(partial) }
+            .sorted()
+            .map { $0.uppercased() }
     }
 }
