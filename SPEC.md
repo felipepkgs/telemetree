@@ -516,3 +516,34 @@ Known gap, not fixed: the popup doesn't auto-dismiss on a stray caret
 move (arrow keys past it, or a mouse click elsewhere) — it only closes on
 Tab-accept, Escape, or the next text edit recomputing it away. Minor and
 not yet reported as an issue in practice.
+
+## Three more fixes from live testing, plus the icon rework (felipepkgs/telemetree#5)
+
+- **UPDATE always confirms now**: `DestructiveSQLGuard` used to exempt any
+  UPDATE that had a WHERE clause, on the reasoning that a scoped UPDATE
+  is safer than an unscoped one. Reported as "updates aren't requiring
+  Touch ID" — the exemption was inconsistent: a scoped UPDATE still
+  overwrites real rows, the same way a scoped DELETE does (which was
+  never exempt). DELETE/DROP/TRUNCATE/UPDATE all confirm unconditionally
+  now; the WHERE-clause check is gone.
+- **Statement boundary fix**: `SQLStatementLocator.statement(containing:)`
+  attributed the caret position immediately after a `;` to the *next*
+  statement (whose range technically starts there, at its leading
+  whitespace) rather than the one that just ended. Fixed by checking
+  `NSMaxRange(statement.range) == location` first. This is the same
+  lookup `currentExecutionTarget()` uses for what Run actually sends, so
+  Run was affected too, not just the visual highlight.
+- **Statement highlight redesigned**: green background fill
+  (`NSColor.systemGreen.withAlphaComponent(0.16)`) plus a solid green
+  border, replacing the low-contrast blue-ish `controlAccentColor` tint.
+  AppKit's text-attribute system has no per-range border, only fill, so
+  the border is a plain `NSView` overlay (`statementBorderView`) added
+  as a direct subview of the text view, repositioned from
+  `layoutManager.boundingRect(forGlyphRange:in:)` on every highlight
+  update so it scrolls and tracks correctly with the text.
+- **App icon reworked** from a provided design
+  (felipepkgs/telemetree#5): same connection-tree concept, redrawn as a
+  fuller 5-node hierarchy glyph with a richer purple gradient (plus a
+  subtle radial highlight) instead of the flatter two-stop gradient of
+  the first pass. Re-checked at real 16px/32px render size before
+  shipping, same as the first icon.

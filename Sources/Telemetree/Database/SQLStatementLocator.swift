@@ -55,6 +55,15 @@ enum SQLStatementLocator {
     /// whitespace/on the closing `;`), then the first statement.
     static func statement(containing location: Int, in sql: String) -> Statement? {
         let all = statements(in: sql)
+        // Caret sitting exactly at the end of a statement (right after its
+        // closing `;`) belongs to that statement, not whatever follows —
+        // even though the next statement's range may technically start at
+        // that same index (its leading whitespace). Checked first so this
+        // boundary position doesn't fall through to "the next statement"
+        // below.
+        if let atBoundary = all.first(where: { NSMaxRange($0.range) == location }) {
+            return atBoundary
+        }
         if let match = all.first(where: { NSLocationInRange(location, $0.range) }) {
             return match
         }

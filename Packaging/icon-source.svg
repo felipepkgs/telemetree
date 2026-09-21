@@ -1,18 +1,40 @@
 <!-- Regenerate AppIcon.icns from this file: see icon-regen.sh in this directory.
-     Glyph is the docs site's nav logo (docs/index.html .brand svg), scaled 38x
-     with proportionally thick strokes so it stays legible at small icon sizes. -->
-<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+     Design from felipepkgs/telemetree#5 — same connection-tree concept as
+     the docs site's nav logo, redrawn as a fuller node-hierarchy glyph. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#c58af0"/>
-      <stop offset="100%" stop-color="#6b21d8"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#D46BFF"/>
+      <stop offset="48%" stop-color="#7B2CFF"/>
+      <stop offset="100%" stop-color="#3A00B8"/>
     </linearGradient>
+    <radialGradient id="glow" cx="25%" cy="15%" r="90%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".16"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
-  <circle cx="400" cy="295" r="76" fill="#ffffff"/>
-  <line x1="400" y1="371" x2="400" y2="827" stroke="#ffffff" stroke-width="68"/>
-  <line x1="400" y1="561" x2="628" y2="561" stroke="#ffffff" stroke-width="68"/>
-  <circle cx="628" cy="561" r="72" fill="#ffffff"/>
-  <line x1="400" y1="732" x2="590" y2="732" stroke="#ffffff" stroke-width="68"/>
-  <circle cx="590" cy="732" r="72" fill="#ffffff"/>
+
+  <!-- App tile -->
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="220" fill="url(#glow)"/>
+
+  <!-- Hierarchy / node-tree -->
+  <g fill="#FFFFFF" stroke="#FFFFFF" stroke-width="44"
+     stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- vertical hierarchy -->
+    <path d="M420 280 V440"/>
+    <path d="M420 520 V650"/>
+
+    <!-- child relationships -->
+    <path d="M460 690 L640 585"/>
+    <path d="M460 710 L640 825"/>
+
+    <!-- nodes -->
+    <circle cx="420" cy="220" r="68" stroke="none"/>
+    <circle cx="420" cy="480" r="68" stroke="none"/>
+    <circle cx="420" cy="700" r="68" stroke="none"/>
+    <circle cx="690" cy="555" r="68" stroke="none"/>
+    <circle cx="690" cy="850" r="68" stroke="none"/>
+  </g>
 </svg>
