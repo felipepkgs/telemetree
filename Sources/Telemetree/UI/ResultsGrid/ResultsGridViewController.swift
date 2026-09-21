@@ -4,7 +4,8 @@ import Combine
 @MainActor
 final class ResultsGridViewController: NSViewController {
     private let appState: AppState
-    private var cancellables = Set<AnyCancellable>()
+    private var appCancellables = Set<AnyCancellable>()
+    private var documentCancellables = Set<AnyCancellable>()
     private var result: QueryResult = .empty
 
     private let tableView = NSTableView()
@@ -29,8 +30,7 @@ final class ResultsGridViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        bind()
-        apply(.empty)
+        bindWorkspace()
     }
 
     private func setupUI() {
@@ -58,7 +58,7 @@ final class ResultsGridViewController: NSViewController {
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.textColor = .secondaryLabelColor
-        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.font = FontLibrary.sans(11)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         messageLabel.alignment = .center
@@ -107,16 +107,32 @@ final class ResultsGridViewController: NSViewController {
         ])
     }
 
-    private func bind() {
-        appState.$queryResult
+    private func bindWorkspace() {
+        appState.$activeDocumentID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.bindActiveDocument() }
+            .store(in: &appCancellables)
+
+        bindActiveDocument()
+    }
+
+    private func bindActiveDocument() {
+        documentCancellables.removeAll()
+
+        guard let state = appState.activeState else {
+            apply(.empty)
+            return
+        }
+
+        state.$queryResult
             .receive(on: DispatchQueue.main)
             .sink { [weak self] result in self?.apply(result) }
-            .store(in: &cancellables)
+            .store(in: &documentCancellables)
 
-        appState.$errorMessage
+        state.$errorMessage
             .receive(on: DispatchQueue.main)
             .sink { [weak self] error in self?.applyError(error) }
-            .store(in: &cancellables)
+            .store(in: &documentCancellables)
     }
 
     private func apply(_ result: QueryResult) {
@@ -227,7 +243,7 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
             cell = NSTableCellView()
             cell.identifier = identifier
             textField = NSTextField(labelWithString: "")
-            textField.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            textField.font = FontLibrary.mono(11)
             textField.lineBreakMode = .byTruncatingTail
             textField.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(textField)

@@ -4,7 +4,8 @@ import Combine
 @MainActor
 final class SQLEditorViewController: NSViewController {
     private let appState: AppState
-    private var cancellables = Set<AnyCancellable>()
+    private var appCancellables = Set<AnyCancellable>()
+    private var documentCancellables = Set<AnyCancellable>()
 
     private let textView = NSTextView()
     private let scrollView = NSScrollView()
@@ -28,7 +29,7 @@ final class SQLEditorViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        bind()
+        bindWorkspace()
     }
 
     private func setupUI() {
@@ -44,7 +45,7 @@ final class SQLEditorViewController: NSViewController {
         progressIndicator.isDisplayedWhenStopped = false
         progressIndicator.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .boldSystemFont(ofSize: 12)
+        titleLabel.font = FontLibrary.sans(12, weight: .bold)
         titleLabel.textColor = .secondaryLabelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -55,14 +56,13 @@ final class SQLEditorViewController: NSViewController {
         toolbar.addSubview(runButton)
 
         textView.isRichText = false
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.font = FontLibrary.mono(12)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.allowsUndo = true
         textView.delegate = self
-        textView.string = appState.sqlText
         textView.textContainerInset = NSSize(width: 6, height: 6)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -107,38 +107,64 @@ final class SQLEditorViewController: NSViewController {
         ])
     }
 
-    private func bind() {
-        appState.$selectedProfileID
+    private func bindWorkspace() {
+        appState.$activeDocumentID
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updateHeader() }
-            .store(in: &cancellables)
+            .sink { [weak self] _ in self?.bindActiveDocument() }
+            .store(in: &appCancellables)
 
         appState.connectionManager.$profiles
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.updateHeader() }
-            .store(in: &cancellables)
+            .store(in: &appCancellables)
 
-        appState.$isExecuting
+        bindActiveDocument()
+    }
+
+    private func bindActiveDocument() {
+        documentCancellables.removeAll()
+
+        guard let state = appState.activeState else {
+            textView.string = ""
+            textView.isEditable = false
+            updateHeader()
+            return
+        }
+
+        textView.isEditable = true
+        if textView.string != state.sql {
+            textView.string = state.sql
+        }
+
+        state.$sql
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] text in
+                guard let self, self.textView.string != text else { return }
+                self.textView.string = text
+            }
+            .store(in: &documentCancellables)
+
+        state.$isExecuting
             .receive(on: DispatchQueue.main)
             .sink { [weak self] executing in
                 guard let self else { return }
                 self.updateHeader()
                 executing ? self.progressIndicator.startAnimation(nil) : self.progressIndicator.stopAnimation(nil)
             }
-            .store(in: &cancellables)
+            .store(in: &documentCancellables)
 
-        appState.$sqlText
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] text in
-                guard let self, self.textView.string != text else { return }
-                self.textView.string = text
-            }
-            .store(in: &cancellables)
+        updateHeader()
     }
 
     private func updateHeader() {
-        titleLabel.stringValue = appState.selectedProfile?.name ?? "No connection selected"
-        runButton.isEnabled = !appState.isExecuting && appState.selectedProfileID != nil
+        guard let document = appState.activeDocument, let state = appState.activeState else {
+            titleLabel.stringValue = "No query open"
+            runButton.isEnabled = false
+            return
+        }
+        let connectionName = appState.selectedProfile?.name
+        titleLabel.stringValue = connectionName.map { "\(document.name) — \($0)" } ?? document.name
+        runButton.isEnabled = !state.isExecuting
     }
 
     @objc private func run() {
@@ -148,6 +174,6 @@ final class SQLEditorViewController: NSViewController {
 
 extension SQLEditorViewController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
-        appState.sqlText = textView.string
+        appState.updateActiveSQL(textView.string)
     }
 }

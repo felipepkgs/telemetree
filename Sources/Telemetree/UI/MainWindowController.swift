@@ -2,7 +2,10 @@ import AppKit
 
 @MainActor
 final class MainWindowController: NSWindowController {
+    private let appState: AppState
+
     init(appState: AppState) {
+        self.appState = appState
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -33,5 +36,14 @@ final class MainWindowController: NSWindowController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc func newQuery(_ sender: Any?) {
+        appState.newDocument()
+    }
+
+    @objc func closeActiveTab(_ sender: Any?) {
+        guard let documentID = appState.activeDocumentID else { return }
+        appState.closeDocument(documentID)
     }
 }

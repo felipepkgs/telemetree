@@ -53,7 +53,7 @@ final class NewConnectionWindowController: NSWindowController {
         progressIndicator.isDisplayedWhenStopped = false
         progressIndicator.translatesAutoresizingMaskIntoConstraints = false
 
-        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.font = FontLibrary.sans(11)
 
         let grid = NSGridView(views: [
             [label("Name"), nameField],

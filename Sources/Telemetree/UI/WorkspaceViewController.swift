@@ -1,12 +1,16 @@
 import AppKit
 
-/// The SQL editor stacked above the results grid.
+/// The tab bar, SQL editor, and results grid for the active connection's
+/// query workspace.
 @MainActor
-final class WorkspaceViewController: NSSplitViewController {
+final class WorkspaceViewController: NSViewController {
     private let appState: AppState
+    private let tabBar: DocumentTabBarView
+    private let splitViewController = NSSplitViewController()
 
     init(appState: AppState) {
         self.appState = appState
+        self.tabBar = DocumentTabBarView(appState: appState)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -14,9 +18,14 @@ final class WorkspaceViewController: NSSplitViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func loadView() {
+        view = NSView()
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        splitView.isVertical = false
+
+        splitViewController.splitView.isVertical = false
 
         let editorVC = SQLEditorViewController(appState: appState)
         let editorItem = NSSplitViewItem(viewController: editorVC)
@@ -26,7 +35,36 @@ final class WorkspaceViewController: NSSplitViewController {
         let gridItem = NSSplitViewItem(viewController: gridVC)
         gridItem.minimumThickness = 120
 
-        addSplitViewItem(editorItem)
-        addSplitViewItem(gridItem)
+        splitViewController.addSplitViewItem(editorItem)
+        splitViewController.addSplitViewItem(gridItem)
+        addChild(splitViewController)
+
+        tabBar.translatesAutoresizingMaskIntoConstraints = false
+        let splitContainerView = splitViewController.view
+        splitContainerView.translatesAutoresizingMaskIntoConstraints = false
+
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(tabBar)
+        view.addSubview(divider)
+        view.addSubview(splitContainerView)
+
+        NSLayoutConstraint.activate([
+            tabBar.topAnchor.constraint(equalTo: view.topAnchor),
+            tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tabBar.heightAnchor.constraint(equalToConstant: 30),
+
+            divider.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            splitContainerView.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            splitContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            splitContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            splitContainerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 }
