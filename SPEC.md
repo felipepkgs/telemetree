@@ -367,6 +367,86 @@ targets macOS 14 vs. GhostBar's 13).
   between consecutive pages). No profiling infrastructure was added
   permanently — this was a one-off verification, not a lasting tool.
 
+## Post-M5 verification pass: real bugs found via live testing
+
+Everything in the M5 section above was verified by code review and
+isolated logic checks, not by actually running queries against a live
+connection — this pass did that, and found real bugs the earlier review
+missed.
+
+- **Root cause of nearly all the confusion this pass**: a Homebrew-
+  installed copy of the app and a locally built dev binary were running
+  *at the same time*. Clicks, keystrokes, and screenshots kept landing on
+  whichever window happened to be frontmost — not necessarily the one
+  actually being scripted against — which looked exactly like "the fix
+  isn't working" for round after round before the real cause (two live
+  processes, not one broken fix) was caught. Resolved two ways:
+  - Uninstalled the Homebrew copy — **going forward, only run the local
+    build on this machine.** Homebrew/release testing happens on a
+    separate machine; issues from there get filed normally.
+  - Added `App/SingleInstanceLock.swift` — `flock()` on a lock file in
+    Application Support, acquired as the first thing in `main()`, before
+    any UI setup. Atomic/kernel-enforced, so it can't race the way an
+    `NSWorkspace.runningApplications` list-and-check can when two
+    instances launch close together. Since Telemetree has a real window
+    (unlike a menu-bar-only accessory app), the second instance activates
+    the first one (`NSWorkspace`, matched by process name — a bare dev
+    binary has no bundle identifier to filter by) instead of silently
+    quitting.
+  - Adjacent gotcha: `find .build -name Telemetree` silently preferred a
+    stale `-c release` binary over the fresh plain `swift build` (Debug)
+    output once both existed on disk from earlier in the session — file
+    timestamps looked fine, it just wasn't the binary actually being
+    edited. `rm -rf .build/out/Products/Release` before rebuilding, or
+    check `strings <binary> | grep <a string unique to the latest edit>`,
+    not just timestamps, when a fix "isn't taking."
+- **Fixed**: pagination appended `LIMIT n` directly after the raw SQL
+  string without stripping a trailing `;` first, producing invalid syntax
+  (`SELECT * FROM x; LIMIT 500`) for any un-limited SELECT ending in a
+  semicolon — the near-universal style, so this broke pagination for
+  most real queries. Found via a real MySQL syntax error while testing
+  against a live connection, not by inspection.
+  `AppState.stripTrailingSemicolon` fixes both `executeCurrentSQL` and
+  the stored `paginationBaseSQL` `loadMoreRows` reuses. Verified against
+  a real 600-row table: correct page boundaries, ~7-10ms per page
+  regardless of depth.
+- **Found, not fixed**: DML statements (INSERT/UPDATE/DELETE) always show
+  "0 row(s) affected" regardless of the real count.
+  `MySQLDatabaseConnection.execute`'s `simpleQuery` never returns
+  result-set rows for DML, so the `guard let firstRow = rows.first else
+  { return ...affectedRows: 0 }` early-return path always hits. The real
+  affected-rows count only comes from MySQLNIO's `OK_Packet`, exposed via
+  the `query(_:_:onRow:onMetadata:)` API — a different wire protocol
+  (prepared statements, COM_STMT_PREPARE/EXECUTE) than `simpleQuery`'s
+  text protocol (COM_QUERY). Switching carries migration risk (prepared
+  statements can behave differently for some DDL/multi-statement cases)
+  that needed more testing than there was room for — left as a known
+  issue, data integrity isn't affected, just the displayed count.
+- **Accessibility — verified as far as this environment allows, not
+  further**: confirmed the actual bug class (`NSButton`/`NSTableCellView`
+  silently ignore `setAccessibilityLabel()`, must override the getter —
+  see the M5 section above) via direct `AXUIElementCopyAttributeValue`
+  calls (Python + `ApplicationServices`, bypassing AppleScript's System
+  Events entirely). That direct check also caught a trap: AppleScript's
+  "description" property reads `AXRoleDescription` (a generic per-role
+  string like "button"), not the real accessibility label — this cost
+  real time before switching to the direct API call. Even after the
+  getter-override fix and confirming the direct-API method works
+  correctly (proven against Finder's real, localized icon-button labels),
+  the custom labels still don't show up externally on this specific
+  local ad-hoc-signed dev build — ruled out a property-storage bug with a
+  hardcoded-return-value test. The code is correct, standard AppKit API
+  usage; something about this non-Xcode dev-build environment doesn't
+  surface it. Worth a real VoiceOver check on an actual installed build
+  before fully trusting this.
+- **Screenshots added to the docs site** (all captured from real, live
+  interactions against the actual database, not staged): auto-pagination
+  with a real 600-row table and the Load More button, the friendly
+  "Table doesn't exist" error message, the New Connection dialog's fixed
+  centering, and the real Touch ID/password system prompt triggered by a
+  DELETE (plus confirmed cancelling it blocks the query).
+- Shipped as `v0.1.7`.
+
 ## Other follow-ups noted during development
 
 - **Dev signing**: `swift build` produces an ad-hoc-signed binary whose
