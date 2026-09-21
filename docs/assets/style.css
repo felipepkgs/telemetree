@@ -349,14 +349,80 @@ section { padding: 88px 0; }
   margin: 0;
 }
 
-/* ---------- Showcase (screenshots) ---------- */
+/* ---------- Carousel (shared: showcase + themes) ---------- */
 
-.showcase {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 24px;
-  align-items: start;
+.carousel {
+  position: relative;
 }
+
+.carousel-track {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin: 0 -2px;
+  padding: 2px;
+}
+
+.carousel-track::-webkit-scrollbar { display: none; }
+
+.carousel-item {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  min-width: 0;
+}
+
+.carousel-btn {
+  position: absolute;
+  top: 44%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: opacity 0.15s;
+}
+
+.carousel-btn:hover { border-color: var(--text-secondary); }
+
+.carousel-btn:disabled { opacity: 0.3; cursor: default; }
+
+.carousel-btn.prev { left: -8px; }
+
+.carousel-btn.next { right: -8px; }
+
+.carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.carousel-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--border-strong);
+  cursor: pointer;
+}
+
+.carousel-dot.active { background: var(--text); }
+
+/* ---------- Showcase (screenshots) ---------- */
 
 .showcase-cap {
   margin-top: 14px;
@@ -368,12 +434,6 @@ section { padding: 88px 0; }
 .showcase-cap span { color: var(--text-secondary); }
 
 /* ---------- Themes ---------- */
-
-.theme-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-}
 
 .theme-card .frame { margin-bottom: 12px; }
 
@@ -498,9 +558,9 @@ footer p {
 
 @media (max-width: 860px) {
   .grid { grid-template-columns: 1fr 1fr; }
-  .showcase { grid-template-columns: 1fr; }
-  .theme-grid { grid-template-columns: 1fr; }
   .status-columns { grid-template-columns: 1fr; gap: 32px; }
+  .carousel-btn.prev { left: -4px; }
+  .carousel-btn.next { right: -4px; }
 }
 
 @media (max-width: 560px) {
