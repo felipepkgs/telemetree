@@ -8,10 +8,8 @@
 # open; the Homebrew cask clears that automatically (see the tap's
 # Casks/telemetree.rb), same pattern as GhostBar.
 #
-# No custom app icon yet (Packaging/AppIcon.icns) — this bundle falls back
-# to the generic macOS app icon until one is picked. Once AppIcon.icns
-# exists, add a CFBundleIconFile key to Packaging/Info.plist and this
-# script will pick it up automatically.
+# Packaging/AppIcon.icns (generated from Packaging/icon-source.svg via
+# Packaging/icon-regen.sh) is copied in below if present.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

@@ -1,0 +1,18 @@
+<!-- Regenerate AppIcon.icns from this file: see icon-regen.sh in this directory.
+     Glyph is the docs site's nav logo (docs/index.html .brand svg), scaled 38x
+     with proportionally thick strokes so it stays legible at small icon sizes. -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c58af0"/>
+      <stop offset="100%" stop-color="#6b21d8"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+  <circle cx="400" cy="295" r="76" fill="#ffffff"/>
+  <line x1="400" y1="371" x2="400" y2="827" stroke="#ffffff" stroke-width="68"/>
+  <line x1="400" y1="561" x2="628" y2="561" stroke="#ffffff" stroke-width="68"/>
+  <circle cx="628" cy="561" r="72" fill="#ffffff"/>
+  <line x1="400" y1="732" x2="590" y2="732" stroke="#ffffff" stroke-width="68"/>
+  <circle cx="590" cy="732" r="72" fill="#ffffff"/>
+</svg>

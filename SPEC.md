@@ -457,5 +457,28 @@ missed.
   from re-prompting, but a new build still changes the binary's hash, so
   it likely still re-prompts after actual code changes. Not fully solved;
   not an issue once distributed as a normally-signed app.
-- **App icon**: no custom app icon yet; About window and Dock currently
-  show the system's generic default icon.
+
+## App icon and the DML affected-rows fix
+
+- **App icon, implemented**: `Packaging/icon-source.svg` reuses the docs
+  site's nav logo glyph (`docs/index.html`'s `.brand` svg — the
+  connection-tree mark, a nod to "Telemetree") scaled 38x onto a purple
+  gradient squircle, with stroke widths scaled proportionally rather than
+  redrawn as hairlines. That distinction mattered: a cross-session tip
+  from GhostBar (who'd shipped a thin-outline icon that turned into an
+  illegible smudge at Dock/Spotlight/Raycast sizes) prompted checking this
+  one at actual 16px/32px render size before committing, not just at
+  full size — it held up because the strokes are proportionally thick,
+  not thin. `Packaging/icon-regen.sh` rebuilds `AppIcon.icns` from the SVG
+  (via `sips` + `iconutil`, no extra dependency); `Packaging/Info.plist`
+  now sets `CFBundleIconFile`. The iconset intermediate PNGs aren't
+  committed (regenerable, would just be repo bloat) — only the SVG
+  source, the regen script, and the compiled `.icns`.
+- **Fixed**: DML affected-rows always showing 0 (noted above as found but
+  not fixed). `MySQLDatabaseConnection.execute` now calls MySQLNIO's
+  `query(_:onMetadata:)` (prepared-statement protocol,
+  COM_STMT_PREPARE/EXECUTE) instead of `simpleQuery` (text protocol,
+  COM_QUERY) — the latter never returns an `OK_Packet`; the former does,
+  and its `affectedRows` is threaded through when a query returns no rows
+  (i.e. any DML). Verified via a clean build; not yet re-verified against
+  a live INSERT/UPDATE/DELETE the way the earlier pagination fix was.

@@ -6,6 +6,8 @@
 	<string>Telemetree</string>
 	<key>CFBundleExecutable</key>
 	<string>Telemetree</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.felipepkgs.telemetree</string>
 	<key>CFBundleName</key>

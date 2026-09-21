@@ -3,3 +3,5 @@
 *.xcodeproj
 .DS_Store
 .claude/
+/Telemetree.app/
+/Packaging/AppIcon.iconset/

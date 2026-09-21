@@ -36,9 +36,14 @@ final class MySQLDatabaseConnection: DatabaseConnection {
 
     func execute(sql: String) async throws -> QueryResult {
         do {
-            let rows = try await connection.simpleQuery(sql).get()
+            // Prepared-statement protocol (COM_STMT_PREPARE/EXECUTE), not
+            // `simpleQuery`'s text protocol (COM_QUERY) — the latter never
+            // surfaces DML's real affected-row count, only an OK_Packet
+            // reachable through this API's `onMetadata` callback.
+            nonisolated(unsafe) var metadata: MySQLQueryMetadata?
+            let rows = try await connection.query(sql, onMetadata: { metadata = $0 }).get()
             guard let firstRow = rows.first else {
-                return QueryResult(columns: [], rows: [], affectedRows: 0)
+                return QueryResult(columns: [], rows: [], affectedRows: metadata.map { Int($0.affectedRows) } ?? 0)
             }
             let columns = firstRow.columnDefinitions.map(\.name)
             let resultRows: [[QueryValue]] = rows.map { row in
