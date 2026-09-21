@@ -1,0 +1,113 @@
+name: Release
+
+# Runs on every push to master that actually touches what gets built —
+# README/doc-only commits don't need a new release. If the pushed commit
+# already bumped Packaging/Info.plist's version to something unreleased
+# (e.g. a manual minor/major bump), that version is used as-is; otherwise
+# the patch component is bumped automatically (no manual release dance
+# needed for routine fixes).
+on:
+  push:
+    branches: [master]
+    paths:
+      - "Sources/**"
+      - "Package.swift"
+      - "Packaging/**"
+      - "Scripts/build_app.sh"
+
+permissions:
+  contents: write
+
+# Queues workflow runs instead of letting two race each other's version-bump
+# push. Doesn't cover every case, though: a run's own push can still get
+# rejected by a push that happens outside the Actions system entirely (e.g.
+# several PRs merged back to back interactively) while that run is already
+# mid-flight — checkout already happened, so queuing wouldn't have helped.
+# The "Determine version" step's retry loop is what actually closes that
+# gap; this just cuts down how often it needs to.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine version
+        id: version
+        run: |
+          set -euo pipefail
+          CURRENT=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Packaging/Info.plist)
+          if git rev-parse "v$CURRENT" >/dev/null 2>&1; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            NEW="$MAJOR.$MINOR.$((PATCH + 1))"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NEW" Packaging/Info.plist
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW" Packaging/Info.plist
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add Packaging/Info.plist
+            # [skip ci] is what breaks the loop — this commit re-touches
+            # Packaging/**, which matches this workflow's own paths filter.
+            git commit -m "chore: bump version to $NEW [skip ci]"
+            for attempt in 1 2 3 4 5; do
+              if git push; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "::error::git push failed after 5 attempts — master kept moving"
+                exit 1
+              fi
+              echo "push rejected (attempt $attempt/5) — rebasing onto latest master and retrying"
+              git fetch origin master
+              git rebase origin/master
+            done
+            echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build app
+        run: bash Scripts/build_app.sh
+
+      - name: Zip app
+        run: ditto -c -k --sequesterRsrc --keepParent Telemetree.app Telemetree.app.zip
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          git tag -a "v$VERSION" -m "Telemetree v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" Telemetree.app.zip \
+            --title "Telemetree v$VERSION" \
+            --generate-notes \
+            --notes "Ad-hoc signed only (no Apple Developer ID) — Gatekeeper will quarantine the app on first launch; the Homebrew cask clears that automatically."
+
+      # Requires a HOMEBREW_TAP_TOKEN repo secret: a fine-grained PAT scoped
+      # to felipepkgs/homebrew-telemetree with Contents: read & write.
+      # Create one at github.com/settings/tokens (fine-grained), then:
+      #   gh secret set HOMEBREW_TAP_TOKEN --repo felipepkgs/telemetree
+      # Until that secret exists this step fails without affecting the
+      # release above (already published by the previous step).
+      - name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA=$(shasum -a 256 Telemetree.app.zip | awk '{print $1}')
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/felipepkgs/homebrew-telemetree.git" tap
+          cd tap
+          sed -i '' "s/version \".*\"/version \"$VERSION\"/" Casks/telemetree.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"$SHA\"/" Casks/telemetree.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump telemetree to v$VERSION"
+          git push
