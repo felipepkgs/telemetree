@@ -260,6 +260,39 @@ targets macOS 14 vs. GhostBar's 13).
   access. Now public — verified the `v0.1.0` release zip downloads
   anonymously (`200`, no auth).
 
+## Post-release: crash-on-launch fix, Homebrew tap-trust gotcha
+
+- **v0.1.0/v0.1.1 crashed on launch for every installed user**
+  (felipepkgs/telemetree#2, a real IPS crash report, not a local-only
+  issue). Root cause: SPM's generated `Bundle.module` accessor only
+  checks `Bundle.main.bundleURL` (the `.app`'s own root — no
+  `Contents/Resources`) plus the CI build directory, neither of which is
+  where `Scripts/build_app.sh` actually places the resource bundle in a
+  real `.app`; it hits an uncatchable `fatalError()` otherwise. Invisible
+  in local `swift run` testing since that "bundle" is just a build-output
+  directory next to the executable — only a packaged, installed app
+  crashes. Fixed in v0.1.2: `Sources/Telemetree/TelemetreeResources.swift`
+  replaces every `Bundle.module` call site with a resolver that checks
+  `Bundle.main.resourceURL`/`.bundleURL` against both a flat and a
+  `Contents/Resources`-nested bundle layout. Verified by downloading and
+  running the actual CI-built release zip, not just a local build — that
+  distinction is what caught this in the first place, and what confirmed
+  the fix.
+- **Homebrew tap-trust gate**: as of Homebrew 7.0.5, `brew install` on a
+  third-party tap refuses to even load the cask ("Refusing to load cask
+  ... from untrusted tap") until `brew trust --cask
+  felipepkgs/telemetree/telemetree` (or `brew trust felipepkgs/telemetree`)
+  has been run once. This is what "can't download the new release" turned
+  out to be — not a server-side problem, the asset/cask were always fine.
+  Not something the cask itself can fix; it's a one-time step for anyone
+  installing this tap for the first time on a recent Homebrew.
+- **Known, deliberately unfixed**: `brew install`/`upgrade` prints a
+  `postflight` deprecation warning every time (Homebrew wants
+  `postflight_steps`/`run` instead). Same tradeoff GhostBar's cask made —
+  `{{appdir}}` template-token support in `postflight_steps` did land in
+  Homebrew 5.1.14+, so this may no longer be strictly necessary; not
+  migrated since the user called it cosmetic and asked to leave it.
+
 ## Other follow-ups noted during development
 
 - **Dev signing**: `swift build` produces an ad-hoc-signed binary whose
