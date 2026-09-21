@@ -1,10 +1,17 @@
 import Foundation
+import Combine
 
 @MainActor
 final class AppState: ObservableObject {
     let connectionManager = ConnectionManager()
     let queryStore = QueryStore()
+    let snippetStore = SnippetStore()
     let themeStore = ThemeStore()
+
+    /// One-shot "insert this SQL at the caret" events for the active
+    /// editor — not @Published state, since it's a fire-and-forget
+    /// request, not something with a persistent value to hold.
+    let insertRequests = PassthroughSubject<String, Never>()
 
     @Published private(set) var openDocumentIDs: [UUID] = []
     @Published private(set) var activeDocumentID: UUID?
@@ -104,6 +111,10 @@ final class AppState: ObservableObject {
         guard let state = state(for: documentID) else { return }
         state.connectionProfileID = connectionProfileID
         queryStore.setConnection(documentID, connectionProfileID: connectionProfileID)
+    }
+
+    func insertSnippetIntoActiveEditor(_ sql: String) {
+        insertRequests.send(sql)
     }
 
     func updateActiveSQL(_ sql: String) {

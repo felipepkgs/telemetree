@@ -1,6 +1,6 @@
 import AppKit
 
-/// Icons8 (ios-filled style) glyphs, bundled locally so the app never
+/// Icons8 (ios outline style) glyphs, bundled locally so the app never
 /// depends on network access at runtime. Attribution lives in the About
 /// window per Icons8's linkware license.
 enum AppIcon: String {
@@ -10,6 +10,7 @@ enum AppIcon: String {
     case table = "table"
     case folder = "opened-folder"
     case document = "document"
+    case snippet = "snippet"
     case warning = "error"
     case close = "multiply"
 

@@ -6,6 +6,11 @@ private struct MoveTarget {
     let folderID: UUID?
 }
 
+private struct SnippetMoveTarget {
+    let snippetID: UUID
+    let folderID: UUID?
+}
+
 @MainActor
 final class SidebarViewController: NSViewController {
     private let appState: AppState
@@ -13,12 +18,26 @@ final class SidebarViewController: NSViewController {
 
     private let connectionsHeader = SidebarNode(kind: .sectionHeader("Connections"))
     private let queriesHeader = SidebarNode(kind: .sectionHeader("Queries"))
-    private lazy var rootNodes: [SidebarNode] = [connectionsHeader, queriesHeader]
+    private let snippetsHeader = SidebarNode(kind: .sectionHeader("Snippets"))
+    private lazy var rootNodes: [SidebarNode] = [connectionsHeader, queriesHeader, snippetsHeader]
 
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
     private let contextMenu = NSMenu()
     private let footer = NSView()
+    private let searchField = NSSearchField()
+
+    private var searchText: String = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            rebuildQueriesTree()
+            rebuildSnippetsTree()
+            if !searchText.isEmpty {
+                outlineView.expandItem(queriesHeader)
+                outlineView.expandItem(snippetsHeader)
+            }
+        }
+    }
 
     init(appState: AppState) {
         self.appState = appState
@@ -40,6 +59,7 @@ final class SidebarViewController: NSViewController {
         outlineView.reloadData()
         rebuildConnectionsTree()
         rebuildQueriesTree()
+        rebuildSnippetsTree()
         outlineView.expandItem(connectionsHeader)
         outlineView.expandItem(queriesHeader)
         applyTheme(appState.themeStore.current)
@@ -67,6 +87,10 @@ final class SidebarViewController: NSViewController {
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
 
+        searchField.placeholderString = "Search queries & snippets"
+        searchField.delegate = self
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -89,11 +113,16 @@ final class SidebarViewController: NSViewController {
         divider.translatesAutoresizingMaskIntoConstraints = false
         footer.addSubview(divider)
 
+        view.addSubview(searchField)
         view.addSubview(scrollView)
         view.addSubview(footer)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            searchField.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
+            searchField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
+            searchField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
+
+            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor),
@@ -131,6 +160,16 @@ final class SidebarViewController: NSViewController {
         appState.queryStore.$folders
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.rebuildQueriesTree() }
+            .store(in: &cancellables)
+
+        appState.snippetStore.$snippets
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildSnippetsTree() }
+            .store(in: &cancellables)
+
+        appState.snippetStore.$folders
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.rebuildSnippetsTree() }
             .store(in: &cancellables)
 
         appState.$activeDocumentID
@@ -175,7 +214,19 @@ final class SidebarViewController: NSViewController {
 
     private func rebuildQueriesTree() {
         let existing = flattenExistingNodes(queriesHeader.children)
-        queriesHeader.children = buildQueryNodes(parentFolderID: nil, existingByKey: existing)
+
+        if !searchText.isEmpty {
+            let matches = appState.queryStore.documents
+                .filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+                .sorted { $0.name < $1.name }
+            queriesHeader.children = matches.map { document -> SidebarNode in
+                let node = existing["doc:\(document.id)"] ?? SidebarNode(kind: .queryDocument(document))
+                node.kind = .queryDocument(document)
+                return node
+            }
+        } else {
+            queriesHeader.children = buildQueryNodes(parentFolderID: nil, existingByKey: existing)
+        }
         outlineView.reloadItem(queriesHeader, reloadChildren: true)
     }
 
@@ -188,7 +239,7 @@ final class SidebarViewController: NSViewController {
             .sorted { $0.sortOrder < $1.sortOrder }
 
         let folderNodes = folders.map { folder -> SidebarNode in
-            let node = existingByKey["folder:\(folder.id)"] ?? SidebarNode(kind: .queryFolder(folder))
+            let node = existingByKey["qfolder:\(folder.id)"] ?? SidebarNode(kind: .queryFolder(folder))
             node.kind = .queryFolder(folder)
             node.children = buildQueryNodes(parentFolderID: folder.id, existingByKey: existingByKey)
             return node
@@ -199,6 +250,46 @@ final class SidebarViewController: NSViewController {
             return node
         }
         return folderNodes + documentNodes
+    }
+
+    private func rebuildSnippetsTree() {
+        let existing = flattenExistingNodes(snippetsHeader.children)
+
+        if !searchText.isEmpty {
+            let matches = appState.snippetStore.snippets
+                .filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+                .sorted { $0.name < $1.name }
+            snippetsHeader.children = matches.map { snippet -> SidebarNode in
+                let node = existing["snippet:\(snippet.id)"] ?? SidebarNode(kind: .snippet(snippet))
+                node.kind = .snippet(snippet)
+                return node
+            }
+        } else {
+            snippetsHeader.children = buildSnippetNodes(parentFolderID: nil, existingByKey: existing)
+        }
+        outlineView.reloadItem(snippetsHeader, reloadChildren: true)
+    }
+
+    private func buildSnippetNodes(parentFolderID: UUID?, existingByKey: [String: SidebarNode]) -> [SidebarNode] {
+        let folders = appState.snippetStore.folders
+            .filter { $0.parentID == parentFolderID }
+            .sorted { $0.sortOrder < $1.sortOrder }
+        let snippets = appState.snippetStore.snippets
+            .filter { $0.folderID == parentFolderID }
+            .sorted { $0.sortOrder < $1.sortOrder }
+
+        let folderNodes = folders.map { folder -> SidebarNode in
+            let node = existingByKey["sfolder:\(folder.id)"] ?? SidebarNode(kind: .snippetFolder(folder))
+            node.kind = .snippetFolder(folder)
+            node.children = buildSnippetNodes(parentFolderID: folder.id, existingByKey: existingByKey)
+            return node
+        }
+        let snippetNodes = snippets.map { snippet -> SidebarNode in
+            let node = existingByKey["snippet:\(snippet.id)"] ?? SidebarNode(kind: .snippet(snippet))
+            node.kind = .snippet(snippet)
+            return node
+        }
+        return folderNodes + snippetNodes
     }
 
     private func findNode(in nodes: [SidebarNode], matching predicate: (SidebarNode) -> Bool) -> SidebarNode? {
@@ -241,7 +332,7 @@ final class SidebarViewController: NSViewController {
                 node.children = tables.map { SidebarNode(kind: .table(profile, database: database, table: $0)) }
                 outlineView.reloadItem(node, reloadChildren: true)
             }
-        case .sectionHeader, .queryFolder, .table, .queryDocument, .placeholder:
+        case .sectionHeader, .queryFolder, .snippetFolder, .table, .queryDocument, .snippet, .placeholder:
             break
         }
     }
@@ -251,8 +342,12 @@ final class SidebarViewController: NSViewController {
     @objc private func addButtonClicked(_ sender: NSButton) {
         let menu = NSMenu()
         menu.addItem(menuItem("New Connection…", action: #selector(addConnection)))
+        menu.addItem(.separator())
         menu.addItem(menuItem("New Query", action: #selector(addQuery)))
-        menu.addItem(menuItem("New Folder", action: #selector(addFolder)))
+        menu.addItem(menuItem("New Query Folder", action: #selector(addQueryFolder)))
+        menu.addItem(.separator())
+        menu.addItem(menuItem("New Snippet", action: #selector(addSnippet)))
+        menu.addItem(menuItem("New Snippet Folder", action: #selector(addSnippetFolder)))
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
     }
 
@@ -265,30 +360,63 @@ final class SidebarViewController: NSViewController {
         createAndEditNewQuery(folderID: nil)
     }
 
-    @objc private func addFolder() {
-        createAndEditNewFolder(parentID: nil)
+    @objc private func addQueryFolder() {
+        createAndEditNewQueryFolder(parentID: nil)
+    }
+
+    @objc private func addSnippet() {
+        createAndEditNewSnippet(folderID: nil)
+    }
+
+    @objc private func addSnippetFolder() {
+        createAndEditNewSnippetFolder(parentID: nil)
     }
 
     private func createAndEditNewQuery(folderID: UUID?) {
         let document = appState.queryStore.createDocument(folderID: folderID)
         rebuildQueriesTree()
         outlineView.expandItem(queriesHeader)
-        if let folderID { expandFolder(folderID) }
+        if let folderID { expandQueryFolder(folderID) }
         appState.openDocument(document.id)
         startRenaming { if case .queryDocument(let d) = $0.kind { return d.id == document.id }; return false }
     }
 
-    private func createAndEditNewFolder(parentID: UUID?) {
+    private func createAndEditNewQueryFolder(parentID: UUID?) {
         let folder = appState.queryStore.createFolder(parentID: parentID)
         rebuildQueriesTree()
         outlineView.expandItem(queriesHeader)
-        if let parentID { expandFolder(parentID) }
+        if let parentID { expandQueryFolder(parentID) }
         startRenaming { if case .queryFolder(let f) = $0.kind { return f.id == folder.id }; return false }
     }
 
-    private func expandFolder(_ folderID: UUID) {
+    private func createAndEditNewSnippet(folderID: UUID?) {
+        let snippet = appState.snippetStore.createSnippet(folderID: folderID)
+        rebuildSnippetsTree()
+        outlineView.expandItem(snippetsHeader)
+        if let folderID { expandSnippetFolder(folderID) }
+        startRenaming { if case .snippet(let s) = $0.kind { return s.id == snippet.id }; return false }
+    }
+
+    private func createAndEditNewSnippetFolder(parentID: UUID?) {
+        let folder = appState.snippetStore.createFolder(parentID: parentID)
+        rebuildSnippetsTree()
+        outlineView.expandItem(snippetsHeader)
+        if let parentID { expandSnippetFolder(parentID) }
+        startRenaming { if case .snippetFolder(let f) = $0.kind { return f.id == folder.id }; return false }
+    }
+
+    private func expandQueryFolder(_ folderID: UUID) {
         if let node = findNode(in: queriesHeader.children ?? [], matching: {
             if case .queryFolder(let folder) = $0.kind { return folder.id == folderID }
+            return false
+        }) {
+            outlineView.expandItem(node)
+        }
+    }
+
+    private func expandSnippetFolder(_ folderID: UUID) {
+        if let node = findNode(in: snippetsHeader.children ?? [], matching: {
+            if case .snippetFolder(let folder) = $0.kind { return folder.id == folderID }
             return false
         }) {
             outlineView.expandItem(node)
@@ -310,7 +438,7 @@ final class SidebarViewController: NSViewController {
         return item
     }
 
-    // MARK: - Context menu actions
+    // MARK: - Context menu actions (queries)
 
     @objc private func removeConnection(_ sender: NSMenuItem) {
         guard let profile = sender.representedObject as? ConnectionProfile else { return }
@@ -344,12 +472,12 @@ final class SidebarViewController: NSViewController {
         createAndEditNewQuery(folderID: folder.id)
     }
 
-    @objc private func newSubfolder(_ sender: NSMenuItem) {
+    @objc private func newQuerySubfolder(_ sender: NSMenuItem) {
         guard let folder = sender.representedObject as? QueryFolder else { return }
-        createAndEditNewFolder(parentID: folder.id)
+        createAndEditNewQueryFolder(parentID: folder.id)
     }
 
-    @objc private func deleteFolder(_ sender: NSMenuItem) {
+    @objc private func deleteQueryFolder(_ sender: NSMenuItem) {
         guard let folder = sender.representedObject as? QueryFolder else { return }
         appState.queryStore.deleteFolder(folder.id)
         rebuildQueriesTree()
@@ -366,6 +494,56 @@ final class SidebarViewController: NSViewController {
         submenu.addItem(menuItem("Root", action: #selector(moveDocumentToFolder(_:)), representedObject: MoveTarget(documentID: document.id, folderID: nil)))
         for folder in appState.queryStore.folders.sorted(by: { $0.name < $1.name }) {
             submenu.addItem(menuItem(folder.name, action: #selector(moveDocumentToFolder(_:)), representedObject: MoveTarget(documentID: document.id, folderID: folder.id)))
+        }
+        return submenu
+    }
+
+    // MARK: - Context menu actions (snippets)
+
+    @objc private func insertSnippet(_ sender: NSMenuItem) {
+        guard let snippet = sender.representedObject as? Snippet else { return }
+        appState.insertSnippetIntoActiveEditor(snippet.sql)
+    }
+
+    @objc private func duplicateSnippet(_ sender: NSMenuItem) {
+        guard let snippet = sender.representedObject as? Snippet,
+              appState.snippetStore.duplicate(snippet.id) != nil else { return }
+        rebuildSnippetsTree()
+    }
+
+    @objc private func deleteSnippet(_ sender: NSMenuItem) {
+        guard let snippet = sender.representedObject as? Snippet else { return }
+        appState.snippetStore.delete(snippet.id)
+        rebuildSnippetsTree()
+    }
+
+    @objc private func newSnippetInFolder(_ sender: NSMenuItem) {
+        guard let folder = sender.representedObject as? SnippetFolder else { return }
+        createAndEditNewSnippet(folderID: folder.id)
+    }
+
+    @objc private func newSnippetSubfolder(_ sender: NSMenuItem) {
+        guard let folder = sender.representedObject as? SnippetFolder else { return }
+        createAndEditNewSnippetFolder(parentID: folder.id)
+    }
+
+    @objc private func deleteSnippetFolder(_ sender: NSMenuItem) {
+        guard let folder = sender.representedObject as? SnippetFolder else { return }
+        appState.snippetStore.deleteFolder(folder.id)
+        rebuildSnippetsTree()
+    }
+
+    @objc private func moveSnippetToFolder(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? SnippetMoveTarget else { return }
+        appState.snippetStore.move(target.snippetID, toFolder: target.folderID)
+        rebuildSnippetsTree()
+    }
+
+    private func buildMoveToFolderMenu(for snippet: Snippet) -> NSMenu {
+        let submenu = NSMenu()
+        submenu.addItem(menuItem("Root", action: #selector(moveSnippetToFolder(_:)), representedObject: SnippetMoveTarget(snippetID: snippet.id, folderID: nil)))
+        for folder in appState.snippetStore.folders.sorted(by: { $0.name < $1.name }) {
+            submenu.addItem(menuItem(folder.name, action: #selector(moveSnippetToFolder(_:)), representedObject: SnippetMoveTarget(snippetID: snippet.id, folderID: folder.id)))
         }
         return submenu
     }
@@ -391,17 +569,34 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(menuItem("Delete", action: #selector(deleteDocument(_:)), representedObject: document))
         case .queryFolder(let folder):
             menu.addItem(menuItem("New Query", action: #selector(newQueryInFolder(_:)), representedObject: folder))
-            menu.addItem(menuItem("New Subfolder", action: #selector(newSubfolder(_:)), representedObject: folder))
+            menu.addItem(menuItem("New Subfolder", action: #selector(newQuerySubfolder(_:)), representedObject: folder))
             menu.addItem(.separator())
             menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))
-            menu.addItem(menuItem("Delete Folder", action: #selector(deleteFolder(_:)), representedObject: folder))
+            menu.addItem(menuItem("Delete Folder", action: #selector(deleteQueryFolder(_:)), representedObject: folder))
+        case .snippet(let snippet):
+            menu.addItem(menuItem("Insert into Editor", action: #selector(insertSnippet(_:)), representedObject: snippet))
+            menu.addItem(.separator())
+            menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))
+            menu.addItem(menuItem("Duplicate", action: #selector(duplicateSnippet(_:)), representedObject: snippet))
+            menu.addItem(.separator())
+            let moveItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
+            moveItem.submenu = buildMoveToFolderMenu(for: snippet)
+            menu.addItem(moveItem)
+            menu.addItem(.separator())
+            menu.addItem(menuItem("Delete", action: #selector(deleteSnippet(_:)), representedObject: snippet))
+        case .snippetFolder(let folder):
+            menu.addItem(menuItem("New Snippet", action: #selector(newSnippetInFolder(_:)), representedObject: folder))
+            menu.addItem(menuItem("New Subfolder", action: #selector(newSnippetSubfolder(_:)), representedObject: folder))
+            menu.addItem(.separator())
+            menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))
+            menu.addItem(menuItem("Delete Folder", action: #selector(deleteSnippetFolder(_:)), representedObject: folder))
         case .sectionHeader, .database, .table, .placeholder:
             break
         }
     }
 }
 
-extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
+extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate, NSSearchFieldDelegate {
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
         nodes(for: item).count
     }
@@ -437,9 +632,16 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             appState.runQuery("SELECT * FROM `\(database)`.`\(table.name)` LIMIT 100;", connectionProfileID: profile.id)
         case .queryDocument(let document):
             appState.openDocument(document.id)
-        case .sectionHeader, .database, .queryFolder, .placeholder:
+        case .snippet(let snippet):
+            appState.insertSnippetIntoActiveEditor(snippet.sql)
+        case .sectionHeader, .database, .queryFolder, .snippetFolder, .placeholder:
             break
         }
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField, field === searchField else { return }
+        searchText = field.stringValue
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
@@ -460,6 +662,18 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                 textField.stringValue = node.title
             } else {
                 appState.queryStore.renameFolder(folder.id, to: newName)
+            }
+        case .snippet(let snippet):
+            if newName.isEmpty || newName == snippet.name {
+                textField.stringValue = node.title
+            } else {
+                appState.snippetStore.rename(snippet.id, to: newName)
+            }
+        case .snippetFolder(let folder):
+            if newName.isEmpty || newName == folder.name {
+                textField.stringValue = node.title
+            } else {
+                appState.snippetStore.renameFolder(folder.id, to: newName)
             }
         default:
             textField.stringValue = node.title
@@ -559,6 +773,16 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             textField.isEditable = true
             imageView.image = AppIcon.document.image
             imageView.contentTintColor = isActive ? .controlAccentColor : nil
+        case .snippetFolder:
+            textField.font = FontLibrary.sans(12)
+            textField.isEditable = true
+            imageView.image = AppIcon.folder.image
+            imageView.contentTintColor = nil
+        case .snippet:
+            textField.font = FontLibrary.sans(12)
+            textField.isEditable = true
+            imageView.image = AppIcon.snippet.image
+            imageView.contentTintColor = nil
         case .placeholder:
             textField.font = FontLibrary.sans(11)
             textField.textColor = .secondaryLabelColor

@@ -128,7 +128,19 @@ final class SQLEditorViewController: NSViewController {
 
         applyTheme(appState.themeStore.current)
 
+        appState.insertRequests
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sql in self?.insertSnippet(sql) }
+            .store(in: &appCancellables)
+
         bindActiveDocument()
+    }
+
+    private func insertSnippet(_ sql: String) {
+        guard textView.isEditable else { return }
+        textView.insertText(sql, replacementRange: textView.selectedRange())
+        appState.updateActiveSQL(textView.string)
+        applyHighlighting()
     }
 
     private func bindActiveDocument() {
