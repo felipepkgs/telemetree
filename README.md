@@ -2,6 +2,9 @@
 
 > Your queries are work, not scratch paper.
 
+<img width="1800" height="1200" alt="image" src="https://github.com/user-attachments/assets/109733ff-5f1c-4575-bea4-29698e758cf4" />
+
+
 Telemetree is a native macOS MySQL client built around persistent, named
 query documents instead of disposable tabs — with a real snippet library,
 statement-aware execution, and a genuinely native AppKit interface,
