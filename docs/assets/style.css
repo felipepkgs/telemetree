@@ -226,8 +226,22 @@ code, .mono { font-family: "Geist Mono", ui-monospace, Menlo, monospace; }
   display: flex;
   justify-content: center;
   gap: 12px;
-  margin-bottom: 64px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
+}
+
+.hero-install {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 auto 56px;
+}
+
+.hero-install code {
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: 6px;
 }
 
 /* window-chrome frame around screenshots, echoing the app's own titlebar */
@@ -339,7 +353,7 @@ section { padding: 88px 0; }
 
 .showcase {
   display: grid;
-  grid-template-columns: 1.35fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 24px;
   align-items: start;
 }
