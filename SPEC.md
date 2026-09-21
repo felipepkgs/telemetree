@@ -255,13 +255,10 @@ targets macOS 14 vs. GhostBar's 13).
   fine-grained PAT scoped to the tap repo, Contents: read/write) that
   **has not been created** — that step will fail harmlessly until the
   secret exists; the release itself still publishes fine without it.
-- **Known gap, not yet resolved**: `felipepkgs/telemetree` is currently a
-  *private* repo. A public Homebrew cask pointing at a private repo's
-  release asset will fail to download for anyone without repo access —
-  fine for the user's own machine, not fine for anyone else running
-  `brew install`. Worth revisiting (make the repo public, or accept
-  personal-use-only distribution) before telling anyone else to install
-  it.
+- **Resolved**: `felipepkgs/telemetree` was private, which would've made
+  the public cask's release-zip download fail for anyone without repo
+  access. Now public — verified the `v0.1.0` release zip downloads
+  anonymously (`200`, no auth).
 
 ## Other follow-ups noted during development
 
