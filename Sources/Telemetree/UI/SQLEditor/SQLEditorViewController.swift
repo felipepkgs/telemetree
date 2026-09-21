@@ -99,7 +99,6 @@ final class SQLEditorViewController: NSViewController {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.textStorage?.delegate = syntaxHighlighter
-        textView.addSubview(statementBorderView)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = textView
@@ -286,49 +285,41 @@ final class SQLEditorViewController: NSViewController {
         updateStatementHighlight()
     }
 
-    /// Shows which statement Run would send by tinting its background and
-    /// framing it with a border — only when the caret has no active
-    /// selection, since a real selection already reads clearly via the
-    /// system's own selection color and already IS what Run would send.
+    /// Shows which statement Run would send by tinting its background —
+    /// only when the caret has no active selection, since a real
+    /// selection already reads clearly via the system's own selection
+    /// color and already IS what Run would send.
     private static let statementHighlightColor = NSColor.systemGreen.withAlphaComponent(0.16)
-    private static let statementBorderColor = NSColor.systemGreen
-
-    /// A plain bordered overlay, not a text attribute — AppKit's text
-    /// system has no per-range "border" attribute, only fill
-    /// (.backgroundColor). Added as a direct subview of textView (the
-    /// scroll view's documentView) so it scrolls with the text; its frame
-    /// is recomputed from the statement's bounding rect on every update.
-    private let statementBorderView: NSView = {
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.borderWidth = 1.5
-        view.layer?.cornerRadius = 4
-        view.layer?.borderColor = SQLEditorViewController.statementBorderColor.cgColor
-        view.isHidden = true
-        return view
-    }()
 
     private func updateStatementHighlight() {
         guard let textStorage = textView.textStorage else { return }
         let fullRange = NSRange(location: 0, length: textStorage.length)
         textStorage.removeAttribute(.backgroundColor, range: fullRange)
-        statementBorderView.isHidden = true
 
         let selection = textView.selectedRange()
         guard selection.length == 0,
               let statement = SQLStatementLocator.statement(containing: selection.location, in: textView.string),
               statement.range.length > 0,
               NSMaxRange(statement.range) <= textStorage.length else { return }
-        textStorage.addAttribute(.backgroundColor, value: Self.statementHighlightColor, range: statement.range)
+        // statement.range starts right after the previous statement's ";"
+        // (Run/the caret-boundary lookup need that, to claim the gap
+        // between statements) — but that means it can include leading
+        // whitespace/newlines before the statement's actual first
+        // character, which shouldn't be part of what's visibly painted.
+        let text = textView.string as NSString
+        let highlightRange = Self.trimmingLeadingWhitespace(statement.range, in: text)
+        guard highlightRange.length > 0 else { return }
+        textStorage.addAttribute(.backgroundColor, value: Self.statementHighlightColor, range: highlightRange)
+    }
 
-        guard let layoutManager = textView.layoutManager, let textContainer = textView.textContainer else { return }
-        let glyphRange = layoutManager.glyphRange(forCharacterRange: statement.range, actualCharacterRange: nil)
-        let origin = textView.textContainerOrigin
-        let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-            .offsetBy(dx: origin.x, dy: origin.y)
-            .insetBy(dx: -3, dy: -1)
-        statementBorderView.frame = rect
-        statementBorderView.isHidden = false
+    private static func trimmingLeadingWhitespace(_ range: NSRange, in text: NSString) -> NSRange {
+        var start = range.location
+        let end = NSMaxRange(range)
+        while start < end, text.substring(with: NSRange(location: start, length: 1))
+            .rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+            start += 1
+        }
+        return NSRange(location: start, length: end - start)
     }
 
     private func applyTheme(_ theme: Theme) {
