@@ -124,7 +124,7 @@ final class ResultsGridViewController: NSViewController {
     }
 
     private func applyTheme(_ theme: Theme) {
-        statusBar.layer?.backgroundColor = theme.barFill.cgColor
+        statusBar.layer?.backgroundColor = theme.barFillPaint.cgColor
         statusBar.layer?.borderColor = theme.barBorder.cgColor
         statusBar.layer?.borderWidth = 1
     }

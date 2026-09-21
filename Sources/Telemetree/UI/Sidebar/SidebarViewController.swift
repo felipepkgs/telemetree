@@ -79,7 +79,7 @@ final class SidebarViewController: NSViewController {
     }
 
     private func applyTheme(_ theme: Theme) {
-        footer.layer?.backgroundColor = theme.barFill.cgColor
+        footer.layer?.backgroundColor = theme.barFillPaint.cgColor
         footer.layer?.borderColor = theme.barBorder.cgColor
         footer.layer?.borderWidth = 1
         outlineView.reloadData()

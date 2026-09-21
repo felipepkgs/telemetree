@@ -26,6 +26,14 @@ struct Theme: Identifiable, Equatable {
 
     static func == (lhs: Theme, rhs: Theme) -> Bool { lhs.id == rhs.id }
 
+    /// The color bars should actually paint with — same as `barFill`
+    /// except on Vapor Carbon, which gets the woven texture instead of a
+    /// flat fill. Chips (the tab pill) intentionally don't use this —
+    /// they read `activeSegmentFill` directly, flat, per the source spec.
+    var barFillPaint: NSColor {
+        id == "vapor-carbon" ? CarbonWeaveTexture.patternColor(base: barFill) : barFill
+    }
+
     static let vapor = Theme(
         id: "vapor",
         name: "Vapor",

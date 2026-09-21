@@ -1,8 +1,9 @@
 import AppKit
 
-/// Icons8 (ios outline style) glyphs, bundled locally so the app never
-/// depends on network access at runtime. Attribution lives in the About
-/// window per Icons8's linkware license.
+/// Icons8 ("SF Black" style — thick strokes, reads well at small sizes)
+/// glyphs, bundled locally so the app never depends on network access at
+/// runtime. Attribution lives in the About window per Icons8's linkware
+/// license.
 enum AppIcon: String {
     case add = "plus"
     case connection = "server"

@@ -201,7 +201,7 @@ final class SQLEditorViewController: NSViewController {
     }
 
     private func applyTheme(_ theme: Theme) {
-        toolbar.layer?.backgroundColor = theme.barFill.cgColor
+        toolbar.layer?.backgroundColor = theme.barFillPaint.cgColor
         toolbar.layer?.borderColor = theme.barBorder.cgColor
         toolbar.layer?.borderWidth = 1
     }
