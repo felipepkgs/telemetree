@@ -5,10 +5,14 @@ import AppKit
 final class TabButtonView: NSView {
     private let onSelect: () -> Void
     private let onClose: () -> Void
+    private let tabTitle: String
+    private let tabIsActive: Bool
 
     init(title: String, isActive: Bool, theme: Theme, onSelect: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.onSelect = onSelect
         self.onClose = onClose
+        self.tabTitle = title
+        self.tabIsActive = isActive
         super.init(frame: .zero)
 
         wantsLayer = true
@@ -23,7 +27,7 @@ final class TabButtonView: NSView {
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
 
-        let closeButton = NSButton(
+        let closeButton = AccessibleIconButton(
             image: AppIcon.close.image,
             target: self,
             action: #selector(closeTapped)
@@ -31,6 +35,7 @@ final class TabButtonView: NSView {
         closeButton.isBordered = false
         closeButton.bezelStyle = .inline
         closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.accessibilityLabelOverride = "Close \(title)"
 
         addSubview(label)
         addSubview(closeButton)
@@ -48,6 +53,7 @@ final class TabButtonView: NSView {
 
             heightAnchor.constraint(equalToConstant: 26)
         ])
+
     }
 
     required init?(coder: NSCoder) {
@@ -61,4 +67,20 @@ final class TabButtonView: NSView {
     override func mouseDown(with event: NSEvent) {
         onSelect()
     }
+
+    override func accessibilityPerformPress() -> Bool {
+        onSelect()
+        return true
+    }
+
+    // Before this, a tab was a plain NSView with a mouseDown override —
+    // invisible to VoiceOver and keyboard navigation entirely, not just
+    // under-labeled. `setAccessibilityElement`/`setAccessibilityRole`/
+    // `setAccessibilityLabel` calls in init had no effect — confirmed via
+    // direct AXUIElement inspection, the same silently-ignored-setter
+    // pattern as NSButton/NSTableCellView. Overriding these getters
+    // directly is what actually works.
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { tabIsActive ? "\(tabTitle), selected" : tabTitle }
 }

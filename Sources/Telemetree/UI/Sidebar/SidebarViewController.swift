@@ -113,7 +113,7 @@ final class SidebarViewController: NSViewController {
         scrollView.hasVerticalScroller = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        let addButton = NSButton(
+        let addButton = AccessibleIconButton(
             image: AppIcon.add.image,
             target: self,
             action: #selector(addButtonClicked(_:))
@@ -121,6 +121,7 @@ final class SidebarViewController: NSViewController {
         addButton.isBordered = false
         addButton.bezelStyle = .texturedRounded
         addButton.translatesAutoresizingMaskIntoConstraints = false
+        addButton.accessibilityLabelOverride = "Add"
 
         footer.translatesAutoresizingMaskIntoConstraints = false
         footer.wantsLayer = true
@@ -791,7 +792,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         let imageView: NSImageView
         let dotView: StatusDotView
         let labelDotView: NSView
-        let trashButton: NSButton
+        let trashButton: AccessibleIconButton
         let dotIdentifier = NSUserInterfaceItemIdentifier("StatusDot")
         let labelDotIdentifier = NSUserInterfaceItemIdentifier("LabelDot")
         let trashIdentifier = NSUserInterfaceItemIdentifier("TrashButton")
@@ -800,7 +801,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
            let reusedText = reused.textField, let reusedImage = reused.imageView,
            let reusedDot = reused.subviews.first(where: { $0.identifier == dotIdentifier }) as? StatusDotView,
            let reusedLabelDot = reused.subviews.first(where: { $0.identifier == labelDotIdentifier }),
-           let reusedTrash = reused.subviews.first(where: { $0.identifier == trashIdentifier }) as? NSButton {
+           let reusedTrash = reused.subviews.first(where: { $0.identifier == trashIdentifier }) as? AccessibleIconButton {
             cell = reused
             textField = reusedText
             imageView = reusedImage
@@ -835,7 +836,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             labelDotView.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(labelDotView)
 
-            trashButton = NSButton(image: AppIcon.trash.image, target: nil, action: nil)
+            trashButton = AccessibleIconButton(image: AppIcon.trash.image, target: nil, action: nil)
             trashButton.identifier = trashIdentifier
             trashButton.isBordered = false
             trashButton.bezelStyle = .inline
@@ -897,6 +898,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             trashButton.target = self
             trashButton.action = #selector(self.trashButtonTapped(_:))
             trashButton.identifier = trashIdentifier
+            trashButton.accessibilityLabelOverride = "Delete \(node.title)"
             trashActions[trashButton] = deleteAction
         }
 
@@ -948,7 +950,42 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             imageView.contentTintColor = nil
         }
 
+        // The row's icon (connection/database/table/...), the connection
+        // dot, and the label-color dot all convey state visually with no
+        // text equivalent — nothing here read anything useful to VoiceOver
+        // before. One accessibility label per row beats making every dot
+        // and icon its own separately-focusable element.
+        cell.accessibilityDescriptionOverride = accessibilityDescription(for: node)
+
         return cell
+    }
+
+    private func accessibilityDescription(for node: SidebarNode) -> String {
+        var parts: [String] = [node.title]
+        switch node.kind {
+        case .sectionHeader:
+            parts.append("section")
+        case .connection(let profile):
+            parts.append("connection")
+            parts.append(appState.connectionManager.connectedIDs.contains(profile.id) ? "connected" : "not connected")
+        case .database:
+            parts.append("database")
+        case .table:
+            parts.append("table")
+        case .queryFolder, .snippetFolder:
+            parts.append("folder")
+        case .queryDocument(let document):
+            parts.append("query")
+            if document.id == appState.activeDocumentID { parts.append("active") }
+        case .snippet:
+            parts.append("snippet")
+        case .placeholder:
+            break
+        }
+        if let color = labelColorValue(for: node.kind) {
+            parts.append("labeled \(color.name)")
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func labelColorValue(for kind: SidebarNode.Kind) -> LabelColor? {

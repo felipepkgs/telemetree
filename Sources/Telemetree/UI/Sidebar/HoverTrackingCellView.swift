@@ -6,6 +6,16 @@ final class HoverTrackingCellView: NSTableCellView {
     var onHoverChange: ((Bool) -> Void)?
     private var trackingArea: NSTrackingArea?
 
+    /// NSTableCellView computes its own accessibility label from
+    /// `.textField.stringValue` and ignores `setAccessibilityLabel` calls
+    /// on the cell itself — confirmed by inspecting the live AX tree, not
+    /// guessed. Overriding the getter directly is what actually sticks.
+    var accessibilityDescriptionOverride: String?
+
+    override func accessibilityLabel() -> String? {
+        accessibilityDescriptionOverride ?? super.accessibilityLabel()
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea {
