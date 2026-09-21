@@ -64,7 +64,13 @@ final class SQLEditorViewController: NSViewController {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticTextCompletionEnabled = true
+        // Deliberately off: this is macOS's own system-wide predictive-text
+        // engine, not scoped to SQL keywords — it suggested on field/table
+        // names too, and running alongside the manual complete(nil) call
+        // below (our actual, keyword-scoped completion) was also the root
+        // cause of the reentrancy stack-overflow crash fixed earlier
+        // (felipepkgs/telemetree#4). complete(nil) alone is sufficient.
+        textView.isAutomaticTextCompletionEnabled = false
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
         textView.allowsUndo = true

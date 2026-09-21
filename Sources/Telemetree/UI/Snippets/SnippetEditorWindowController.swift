@@ -44,7 +44,9 @@ final class SnippetEditorWindowController: NSWindowController {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticTextCompletionEnabled = true
+        // See SQLEditorViewController — off deliberately, not scoped to
+        // SQL keywords, was suggesting on field/table names too.
+        textView.isAutomaticTextCompletionEnabled = false
         textView.allowsUndo = true
         textView.delegate = self
         textView.textContainerInset = NSSize(width: 8, height: 8)
