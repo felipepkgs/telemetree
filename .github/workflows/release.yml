@@ -31,7 +31,10 @@ concurrency:
 
 jobs:
   release:
-    runs-on: macos-14
+    # macos-14's default Xcode doesn't include Swift 6.1, which the pinned
+    # swift-nio/mysql-nio versions require (their Package.swift declares
+    # swift-tools-version 6.1) — macos-15's default (Xcode 16.4) does.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
