@@ -6,19 +6,20 @@ final class TabButtonView: NSView {
     private let onSelect: () -> Void
     private let onClose: () -> Void
 
-    init(title: String, isActive: Bool, onSelect: @escaping () -> Void, onClose: @escaping () -> Void) {
+    init(title: String, isActive: Bool, theme: Theme, onSelect: @escaping () -> Void, onClose: @escaping () -> Void) {
         self.onSelect = onSelect
         self.onClose = onClose
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 5
-        layer?.backgroundColor = isActive
-            ? NSColor.controlAccentColor.withAlphaComponent(0.18).cgColor
-            : NSColor.clear.cgColor
+        layer?.cornerRadius = theme.cornerRadius * 0.55
+        layer?.backgroundColor = isActive ? theme.activeSegmentFill.cgColor : NSColor.clear.cgColor
 
         let label = NSTextField(labelWithString: title)
         label.font = FontLibrary.sans(12, weight: isActive ? .semibold : .regular)
+        if isActive {
+            label.textColor = theme.activeSegmentText
+        }
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
 

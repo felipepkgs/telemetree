@@ -38,19 +38,22 @@ final class DocumentTabBarView: NSView {
 
     private func bind() {
         Publishers.CombineLatest3(appState.$openDocumentIDs, appState.$activeDocumentID, appState.queryStore.$documents)
+            .combineLatest(appState.themeStore.$current)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _, _ in self?.rebuild() }
+            .sink { [weak self] _, _ in self?.rebuild() }
             .store(in: &cancellables)
     }
 
     private func rebuild() {
         stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let theme = appState.themeStore.current
         for documentID in appState.openDocumentIDs {
             let title = appState.queryStore.document(id: documentID)?.name ?? "Untitled"
             let isActive = documentID == appState.activeDocumentID
             let tab = TabButtonView(
                 title: title,
                 isActive: isActive,
+                theme: theme,
                 onSelect: { [weak appState] in appState?.activate(documentID) },
                 onClose: { [weak appState] in appState?.closeDocument(documentID) }
             )

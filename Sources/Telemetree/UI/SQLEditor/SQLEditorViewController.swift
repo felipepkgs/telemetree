@@ -13,6 +13,7 @@ final class SQLEditorViewController: NSViewController {
     private let runButton = NSButton(title: "Run", target: nil, action: nil)
     private let progressIndicator = NSProgressIndicator()
     private let syntaxHighlighter = SQLSyntaxHighlighter()
+    private let toolbar = NSView()
 
     init(appState: AppState) {
         self.appState = appState
@@ -50,8 +51,8 @@ final class SQLEditorViewController: NSViewController {
         titleLabel.textColor = .secondaryLabelColor
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let toolbar = NSView()
         toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.wantsLayer = true
         toolbar.addSubview(titleLabel)
         toolbar.addSubview(progressIndicator)
         toolbar.addSubview(runButton)
@@ -120,6 +121,13 @@ final class SQLEditorViewController: NSViewController {
             .sink { [weak self] _ in self?.updateHeader() }
             .store(in: &appCancellables)
 
+        appState.themeStore.$current
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] theme in self?.applyTheme(theme) }
+            .store(in: &appCancellables)
+
+        applyTheme(appState.themeStore.current)
+
         bindActiveDocument()
     }
 
@@ -178,6 +186,12 @@ final class SQLEditorViewController: NSViewController {
     private func applyHighlighting() {
         guard let textStorage = textView.textStorage else { return }
         syntaxHighlighter.highlight(textStorage)
+    }
+
+    private func applyTheme(_ theme: Theme) {
+        toolbar.layer?.backgroundColor = theme.barFill.cgColor
+        toolbar.layer?.borderColor = theme.barBorder.cgColor
+        toolbar.layer?.borderWidth = 1
     }
 }
 

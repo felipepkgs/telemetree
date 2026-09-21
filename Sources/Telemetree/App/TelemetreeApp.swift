@@ -31,6 +31,15 @@ final class TelemetreeApp: NSObject, NSApplicationDelegate {
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
+        let themeMenuItem = NSMenuItem()
+        let themeMenu = NSMenu(title: "Theme")
+        for theme in Theme.all {
+            let item = themeMenu.addItem(withTitle: theme.name, action: #selector(MainWindowController.selectTheme(_:)), keyEquivalent: "")
+            item.representedObject = theme.id
+        }
+        themeMenuItem.submenu = themeMenu
+        mainMenu.addItem(themeMenuItem)
+
         let editMenuItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")

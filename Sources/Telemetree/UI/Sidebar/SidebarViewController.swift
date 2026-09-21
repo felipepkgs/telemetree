@@ -18,6 +18,7 @@ final class SidebarViewController: NSViewController {
     private let outlineView = NSOutlineView()
     private let scrollView = NSScrollView()
     private let contextMenu = NSMenu()
+    private let footer = NSView()
 
     init(appState: AppState) {
         self.appState = appState
@@ -41,6 +42,14 @@ final class SidebarViewController: NSViewController {
         rebuildQueriesTree()
         outlineView.expandItem(connectionsHeader)
         outlineView.expandItem(queriesHeader)
+        applyTheme(appState.themeStore.current)
+    }
+
+    private func applyTheme(_ theme: Theme) {
+        footer.layer?.backgroundColor = theme.barFill.cgColor
+        footer.layer?.borderColor = theme.barBorder.cgColor
+        footer.layer?.borderWidth = 1
+        outlineView.reloadData()
     }
 
     private func setupOutlineView() {
@@ -71,8 +80,8 @@ final class SidebarViewController: NSViewController {
         addButton.bezelStyle = .texturedRounded
         addButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let footer = NSView()
         footer.translatesAutoresizingMaskIntoConstraints = false
+        footer.wantsLayer = true
         footer.addSubview(addButton)
 
         let divider = NSBox()
@@ -127,6 +136,11 @@ final class SidebarViewController: NSViewController {
         appState.$activeDocumentID
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.outlineView.reloadData() }
+            .store(in: &cancellables)
+
+        appState.themeStore.$current
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] theme in self?.applyTheme(theme) }
             .store(in: &cancellables)
     }
 
@@ -459,12 +473,16 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         let cell: NSTableCellView
         let textField: NSTextField
         let imageView: NSImageView
+        let dotView: StatusDotView
+        let dotIdentifier = NSUserInterfaceItemIdentifier("StatusDot")
 
         if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView,
-           let reusedText = reused.textField, let reusedImage = reused.imageView {
+           let reusedText = reused.textField, let reusedImage = reused.imageView,
+           let reusedDot = reused.subviews.first(where: { $0.identifier == dotIdentifier }) as? StatusDotView {
             cell = reused
             textField = reusedText
             imageView = reusedImage
+            dotView = reusedDot
         } else {
             cell = NSTableCellView()
             cell.identifier = identifier
@@ -482,6 +500,11 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             cell.addSubview(textField)
             cell.textField = textField
 
+            dotView = StatusDotView(theme: appState.themeStore.current)
+            dotView.identifier = dotIdentifier
+            dotView.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(dotView)
+
             NSLayoutConstraint.activate([
                 imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
                 imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
@@ -489,8 +512,13 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                 imageView.heightAnchor.constraint(equalToConstant: 16),
 
                 textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -16),
+                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+
+                dotView.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                dotView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                dotView.widthAnchor.constraint(equalToConstant: 8),
+                dotView.heightAnchor.constraint(equalToConstant: 8)
             ])
         }
 
@@ -498,6 +526,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         textField.textColor = .labelColor
         textField.isEditable = false
         imageView.isHidden = false
+        dotView.isHidden = true
 
         switch node.kind {
         case .sectionHeader:
@@ -507,7 +536,10 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             textField.font = FontLibrary.sans(12, weight: .bold)
             let connected = appState.connectionManager.connectedIDs.contains(profile.id)
             imageView.image = AppIcon.connection.image
-            imageView.contentTintColor = connected ? .systemGreen : nil
+            imageView.contentTintColor = nil
+            dotView.isHidden = false
+            dotView.theme = appState.themeStore.current
+            dotView.isActive = connected
         case .database:
             textField.font = FontLibrary.sans(12)
             imageView.image = AppIcon.database.image

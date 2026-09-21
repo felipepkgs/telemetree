@@ -4,6 +4,7 @@ import Foundation
 final class AppState: ObservableObject {
     let connectionManager = ConnectionManager()
     let queryStore = QueryStore()
+    let themeStore = ThemeStore()
 
     @Published private(set) var openDocumentIDs: [UUID] = []
     @Published private(set) var activeDocumentID: UUID?

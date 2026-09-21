@@ -46,4 +46,19 @@ final class MainWindowController: NSWindowController {
         guard let documentID = appState.activeDocumentID else { return }
         appState.closeDocument(documentID)
     }
+
+    @objc func selectTheme(_ sender: NSMenuItem) {
+        guard let themeID = sender.representedObject as? String,
+              let theme = Theme.all.first(where: { $0.id == themeID }) else { return }
+        appState.themeStore.select(theme)
+    }
+}
+
+extension MainWindowController: NSMenuItemValidation {
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let themeID = menuItem.representedObject as? String {
+            menuItem.state = (appState.themeStore.current.id == themeID) ? .on : .off
+        }
+        return true
+    }
 }

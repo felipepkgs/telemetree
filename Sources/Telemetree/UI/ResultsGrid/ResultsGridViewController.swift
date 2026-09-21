@@ -13,6 +13,7 @@ final class ResultsGridViewController: NSViewController {
     private let statusLabel = NSTextField(labelWithString: "")
     private let copyButton = NSButton(title: "Copy Results", target: nil, action: nil)
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private let statusBar = NSView()
 
     init(appState: AppState) {
         self.appState = appState
@@ -66,8 +67,8 @@ final class ResultsGridViewController: NSViewController {
         messageLabel.isHidden = true
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let statusBar = NSView()
         statusBar.translatesAutoresizingMaskIntoConstraints = false
+        statusBar.wantsLayer = true
         statusBar.addSubview(statusLabel)
         statusBar.addSubview(copyButton)
 
@@ -113,7 +114,19 @@ final class ResultsGridViewController: NSViewController {
             .sink { [weak self] _ in self?.bindActiveDocument() }
             .store(in: &appCancellables)
 
+        appState.themeStore.$current
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] theme in self?.applyTheme(theme) }
+            .store(in: &appCancellables)
+
+        applyTheme(appState.themeStore.current)
         bindActiveDocument()
+    }
+
+    private func applyTheme(_ theme: Theme) {
+        statusBar.layer?.backgroundColor = theme.barFill.cgColor
+        statusBar.layer?.borderColor = theme.barBorder.cgColor
+        statusBar.layer?.borderWidth = 1
     }
 
     private func bindActiveDocument() {
