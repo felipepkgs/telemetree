@@ -4,6 +4,8 @@ import AppKit
 @MainActor
 final class TelemetreeApp: NSObject, NSApplicationDelegate {
     static func main() {
+        SingleInstanceLock.acquireOrActivateExisting()
+
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)
         let delegate = TelemetreeApp()
