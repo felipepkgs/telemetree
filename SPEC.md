@@ -4,6 +4,33 @@ The original product spec (MVP scope, milestones, architecture) was given at
 project start and isn't reproduced here. This file tracks additions made
 after that point, so they survive context resets.
 
+## Post-M4 fixes and Preferences
+
+- **Critical fix**: Run used to send the *entire* editor buffer regardless
+  of caret position — with two statements in one document (e.g. a
+  leftover `DELETE` above a `SELECT` being worked on), clicking Run could
+  fire the unrelated earlier statement. `Database/SQLStatementLocator`
+  splits on top-level `;` (ignoring semicolons inside strings/comments,
+  verified with unit-style checks); `AppState.executeCurrentSQL` now
+  takes an override string, and the SQL editor passes the real selection
+  or the statement under the caret — never the whole buffer. The
+  about-to-run statement is also highlighted (background tint) whenever
+  there's no active selection.
+- **Fixed**: SQL autocomplete wasn't firing.
+  `isAutomaticTextCompletionEnabled` alone doesn't trigger it — AppKit
+  still needs an explicit `textView.complete(nil)` per keystroke
+  (confirmed via Apple documentation, not guessed).
+- **Preferences window** (⌘, — macOS auto-renames this menu item to
+  "Settings…", not a bug): `UI/Preferences/PreferencesWindowController`,
+  3 tabs built as simple `NSPopUpButton`-in-`NSGridView` rows.
+  - Appearance: the existing Vapor theme picker (previously menu-only).
+  - Syntax Highlighting: `UI/Theme/SyntaxTheme` — 4 color schemes
+    (Default, Dracula, Monokai, Solarized Dark). `SQLSyntaxHighlighter`
+    is now theme/font-injectable instead of hardcoding colors, shared by
+    both the main SQL editor and the snippet editor.
+  - Editor: `UI/FontPreferences` — font choice (Geist Mono / SF Mono /
+    Menlo) and size (10–18pt), applied live via Combine.
+
 ## Icons — Icons8 (implemented)
 
 - Style: Icons8 "SF Black" (thick strokes, reads well at 16pt — the user's
