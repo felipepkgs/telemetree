@@ -27,6 +27,8 @@ private struct LabelAssignment {
 final class SidebarViewController: NSViewController {
     private let appState: AppState
     private var cancellables = Set<AnyCancellable>()
+    private var newConnectionController: NewConnectionWindowController?
+    private var snippetEditorControllers: [UUID: SnippetEditorWindowController] = [:]
 
     private let connectionsHeader = SidebarNode(kind: .sectionHeader("Connections"))
     private let queriesHeader = SidebarNode(kind: .sectionHeader("Queries"))
@@ -368,6 +370,7 @@ final class SidebarViewController: NSViewController {
 
     @objc private func addConnection() {
         let controller = NewConnectionWindowController(appState: appState)
+        newConnectionController = controller
         controller.showSheet(over: view.window)
     }
 
@@ -534,7 +537,25 @@ final class SidebarViewController: NSViewController {
     }
 
     private func openSnippetEditor(_ snippetID: UUID) {
+        if let existing = snippetEditorControllers[snippetID] {
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let controller = SnippetEditorWindowController(appState: appState, snippetID: snippetID)
+        snippetEditorControllers[snippetID] = controller
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: controller.window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.snippetEditorControllers[snippetID] = nil
+            }
+        }
+
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
