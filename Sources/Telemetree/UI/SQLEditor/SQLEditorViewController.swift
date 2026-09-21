@@ -14,6 +14,7 @@ final class SQLEditorViewController: NSViewController {
     private let progressIndicator = NSProgressIndicator()
     private let syntaxHighlighter = SQLSyntaxHighlighter()
     private let toolbar = NSView()
+    private var isHandlingTextChange = false
 
     init(appState: AppState) {
         self.appState = appState
@@ -265,6 +266,16 @@ final class SQLEditorViewController: NSViewController {
 
 extension SQLEditorViewController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
+        // Reentrancy guard: complete(nil) below can itself trigger another
+        // textDidChange (confirmed via a real crash report — AppKit's
+        // automatic-completion machinery re-entering this delegate call,
+        // stack-overflowing after ~20k recursive frames). Without this
+        // guard, typing a letter that completes to a single keyword (e.g.
+        // "U" -> "UNION") could freeze and crash the app.
+        guard !isHandlingTextChange else { return }
+        isHandlingTextChange = true
+        defer { isHandlingTextChange = false }
+
         appState.updateActiveSQL(textView.string)
         // isAutomaticTextCompletionEnabled alone doesn't trigger the
         // completion popup — AppKit still expects an explicit complete(_:)

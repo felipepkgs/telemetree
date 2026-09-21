@@ -12,6 +12,7 @@ final class SnippetEditorWindowController: NSWindowController {
     private let textView = NSTextView()
     private let syntaxHighlighter = SQLSyntaxHighlighter()
     private var cancellables = Set<AnyCancellable>()
+    private var isHandlingTextChange = false
 
     init(appState: AppState, snippetID: UUID) {
         self.appState = appState
@@ -101,6 +102,13 @@ final class SnippetEditorWindowController: NSWindowController {
 
 extension SnippetEditorWindowController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
+        // See SQLEditorViewController.textDidChange — complete(nil) can
+        // re-enter this same delegate call and stack-overflow without a
+        // guard (confirmed via a real crash report).
+        guard !isHandlingTextChange else { return }
+        isHandlingTextChange = true
+        defer { isHandlingTextChange = false }
+
         appState.snippetStore.updateSQL(snippetID, sql: textView.string)
         textView.complete(nil)
     }
