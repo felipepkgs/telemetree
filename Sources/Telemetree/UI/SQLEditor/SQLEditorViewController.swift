@@ -12,6 +12,7 @@ final class SQLEditorViewController: NSViewController {
     private let titleLabel = NSTextField(labelWithString: "")
     private let runButton = NSButton(title: "Run", target: nil, action: nil)
     private let progressIndicator = NSProgressIndicator()
+    private let syntaxHighlighter = SQLSyntaxHighlighter()
 
     init(appState: AppState) {
         self.appState = appState
@@ -68,6 +69,7 @@ final class SQLEditorViewController: NSViewController {
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
+        textView.textStorage?.delegate = syntaxHighlighter
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = textView
@@ -134,6 +136,7 @@ final class SQLEditorViewController: NSViewController {
         textView.isEditable = true
         if textView.string != state.sql {
             textView.string = state.sql
+            applyHighlighting()
         }
 
         state.$sql
@@ -141,6 +144,7 @@ final class SQLEditorViewController: NSViewController {
             .sink { [weak self] text in
                 guard let self, self.textView.string != text else { return }
                 self.textView.string = text
+                self.applyHighlighting()
             }
             .store(in: &documentCancellables)
 
@@ -169,6 +173,11 @@ final class SQLEditorViewController: NSViewController {
 
     @objc private func run() {
         appState.executeCurrentSQL()
+    }
+
+    private func applyHighlighting() {
+        guard let textStorage = textView.textStorage else { return }
+        syntaxHighlighter.highlight(textStorage)
     }
 }
 
