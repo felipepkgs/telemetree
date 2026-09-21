@@ -200,6 +200,69 @@ normal nested tree). Connections aren't filtered — no stated need for it.
   launch (only Connections/Queries did) — a one-line miss in
   `viewDidLoad`, now fixed.
 
+## Milestone 5: polish, error handling, performance, native UX, settings
+
+Settings landed already (Preferences window, above). Scope decision: system
+light/dark appearance is explicitly deferred to the very end of the
+project — Vapor is a fixed dark aesthetic and won't respond to the system
+appearance setting until M5 is otherwise done. Remaining open items:
+error-handling depth (clearer messages for common MySQL error codes,
+reconnect-on-drop), no accessibility/VoiceOver labels anywhere yet, no
+custom app icon, no performance/stress-testing pass done.
+
+- **Fixed**: pagination for large result sets — an original MVP bullet
+  that never got built (the results grid loaded a query's entire result
+  set into memory with no LIMIT/paging). `AppState.executeCurrentSQL` now
+  auto-appends `LIMIT 500` to a plain SELECT that doesn't already specify
+  its own LIMIT (a keyword check, not a parser — same tradeoff as
+  `DestructiveSQLGuard`); `OpenDocumentState` tracks the base SQL/offset,
+  and a "Load More" button in the results status bar
+  (`AppState.loadMoreRows`) fetches the next page via `LIMIT/OFFSET` and
+  appends rows, instead of re-running the whole query.
+
+## Release packaging: build script, `.app` bundle, CI, Homebrew tap
+
+Adapted from the same pattern already proven on the user's GhostBar
+project (`felipepkgs/GhostBar` / `felipepkgs/homebrew-ghostbar`) — fetched
+and read directly from that repo rather than guessed, then adjusted for
+Telemetree (windowed app, no `LSUIElement`; bundle ID
+`com.felipepkgs.telemetree`; `depends_on macos: :sonoma` since this app
+targets macOS 14 vs. GhostBar's 13).
+
+- `Packaging/Info.plist` — real bundle metadata. No `CFBundleIconFile` yet
+  — no custom app icon exists (still an open discussion with the user,
+  flagged separately from this packaging work). The bundle falls back to
+  the generic macOS app icon until one's chosen; `Scripts/build_app.sh`
+  already copies `Packaging/AppIcon.icns` into the bundle *if present*, so
+  adding the icon later needs no script change.
+- `Scripts/build_app.sh` — `swift build -c release`, hand-assembles
+  `Telemetree.app` (binary, Info.plist, the `Telemetree_Telemetree.bundle`
+  SPM resource bundle for the Icons8/Geist assets), ad-hoc codesigns
+  (`codesign --force --deep -s -`) — no paid Developer ID.
+- `.github/workflows/release.yml` — fires on push to `master` that touches
+  `Sources/**`/`Package.swift`/`Packaging/**`/`Scripts/build_app.sh` (so
+  doc-only commits don't cut a release). Auto-bumps the patch version if
+  the current `Info.plist` version is already tagged, builds, zips
+  (`ditto -c -k --sequesterRsrc --keepParent`), tags, and publishes a
+  GitHub Release with the zip attached.
+- **Homebrew tap**: `felipepkgs/homebrew-telemetree` (new repo, public —
+  required for `brew tap` to work), `Casks/telemetree.rb` — points at the
+  release zip by version/sha256, `postflight` clears the Gatekeeper
+  quarantine flag (ad-hoc-signed, not notarized), `zap` removes
+  `~/Library/Application Support/Telemetree` and the app's prefs plist.
+  The workflow's last step updates this tap's cask automatically after
+  each release, but needs a `HOMEBREW_TAP_TOKEN` repo secret (a
+  fine-grained PAT scoped to the tap repo, Contents: read/write) that
+  **has not been created** — that step will fail harmlessly until the
+  secret exists; the release itself still publishes fine without it.
+- **Known gap, not yet resolved**: `felipepkgs/telemetree` is currently a
+  *private* repo. A public Homebrew cask pointing at a private repo's
+  release asset will fail to download for anyone without repo access —
+  fine for the user's own machine, not fine for anyone else running
+  `brew install`. Worth revisiting (make the repo public, or accept
+  personal-use-only distribution) before telling anyone else to install
+  it.
+
 ## Other follow-ups noted during development
 
 - **Dev signing**: `swift build` produces an ad-hoc-signed binary whose

@@ -135,6 +135,9 @@ final class AppState: ObservableObject {
         queryStore.updateSQL(documentID, sql: sql)
     }
 
+    /// Page size for auto-paginated SELECTs — see `executeCurrentSQL`.
+    static let resultPageSize = 500
+
     /// `overrideSQL`, when given, is what actually runs instead of the
     /// whole document — the SQL editor passes the statement under the
     /// caret (or the real selection, if any) so Run never fires an
@@ -150,6 +153,16 @@ final class AppState: ObservableObject {
         }
         let connectionName = connectionManager.profiles.first { $0.id == profileID }?.name ?? "Unknown"
 
+        // A plain, un-LIMITed SELECT gets paged automatically so a huge
+        // table doesn't get pulled entirely into memory in one shot;
+        // anything else (DML, or a SELECT that already has its own LIMIT)
+        // runs exactly as written.
+        let paginate = Self.isUnlimitedSelect(sql)
+        state.paginationBaseSQL = paginate ? sql : nil
+        state.paginationOffset = 0
+        state.hasMorePages = false
+        let runSQL = paginate ? "\(sql) LIMIT \(Self.resultPageSize)" : sql
+
         Task {
             if DestructiveSQLGuard.isDestructive(sql) {
                 guard await Self.confirmDestructiveQuery() else {
@@ -161,7 +174,9 @@ final class AppState: ObservableObject {
             state.isExecuting = true
             state.errorMessage = nil
             do {
-                state.queryResult = try await connection.execute(sql: sql)
+                let result = try await connection.execute(sql: runSQL)
+                state.queryResult = result
+                state.hasMorePages = paginate && result.rows.count == Self.resultPageSize
                 historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: true, errorMessage: nil)
             } catch {
                 state.errorMessage = error.localizedDescription
@@ -169,6 +184,43 @@ final class AppState: ObservableObject {
             }
             state.isExecuting = false
         }
+    }
+
+    /// Fetches the next page for the currently displayed result, appending
+    /// its rows to what's already shown.
+    func loadMoreRows() {
+        guard let state = activeState,
+              let baseSQL = state.paginationBaseSQL,
+              state.hasMorePages, !state.isExecuting,
+              let profileID = state.connectionProfileID,
+              let connection = connectionManager.connection(for: profileID) else { return }
+        let nextOffset = state.paginationOffset + Self.resultPageSize
+
+        Task {
+            state.isExecuting = true
+            do {
+                let page = try await connection.execute(sql: "\(baseSQL) LIMIT \(Self.resultPageSize) OFFSET \(nextOffset)")
+                state.queryResult = QueryResult(
+                    columns: state.queryResult.columns,
+                    rows: state.queryResult.rows + page.rows,
+                    affectedRows: state.queryResult.affectedRows
+                )
+                state.paginationOffset = nextOffset
+                state.hasMorePages = page.rows.count == Self.resultPageSize
+            } catch {
+                state.errorMessage = error.localizedDescription
+            }
+            state.isExecuting = false
+        }
+    }
+
+    // ponytail: keyword check, not a parser — same tradeoff as
+    // DestructiveSQLGuard. A `LIMIT` inside a subquery/CTE falsely
+    // suppresses auto-paging of the outer SELECT; acceptable since the
+    // fallback is just "no paging," not a wrong result.
+    private static func isUnlimitedSelect(_ sql: String) -> Bool {
+        sql.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().hasPrefix("SELECT")
+            && sql.range(of: "limit", options: .caseInsensitive) == nil
     }
 
     /// Requires the system password or Touch ID before a destructive

@@ -12,6 +12,7 @@ final class ResultsGridViewController: NSViewController {
     private let scrollView = NSScrollView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let copyButton = NSButton(title: "Copy Results", target: nil, action: nil)
+    private let loadMoreButton = NSButton(title: "Load More", target: nil, action: nil)
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private let statusBar = NSView()
 
@@ -58,6 +59,12 @@ final class ResultsGridViewController: NSViewController {
         copyButton.bezelStyle = .rounded
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
+        loadMoreButton.target = self
+        loadMoreButton.action = #selector(loadMore)
+        loadMoreButton.bezelStyle = .rounded
+        loadMoreButton.isHidden = true
+        loadMoreButton.translatesAutoresizingMaskIntoConstraints = false
+
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = FontLibrary.sans(11)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -71,6 +78,7 @@ final class ResultsGridViewController: NSViewController {
         statusBar.wantsLayer = true
         statusBar.addSubview(statusLabel)
         statusBar.addSubview(copyButton)
+        statusBar.addSubview(loadMoreButton)
 
         let divider = NSBox()
         divider.boxType = .separator
@@ -92,6 +100,9 @@ final class ResultsGridViewController: NSViewController {
 
             copyButton.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -10),
             copyButton.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+
+            loadMoreButton.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -8),
+            loadMoreButton.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
 
             divider.topAnchor.constraint(equalTo: statusBar.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -146,6 +157,14 @@ final class ResultsGridViewController: NSViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] error in self?.applyError(error) }
             .store(in: &documentCancellables)
+
+        Publishers.CombineLatest(state.$hasMorePages, state.$isExecuting)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hasMore, executing in
+                self?.loadMoreButton.isHidden = !hasMore
+                self?.loadMoreButton.isEnabled = !executing
+            }
+            .store(in: &documentCancellables)
     }
 
     private func apply(_ result: QueryResult) {
@@ -185,6 +204,10 @@ final class ResultsGridViewController: NSViewController {
             column.sortDescriptorPrototype = NSSortDescriptor(key: "col\(index)", ascending: true)
             tableView.addTableColumn(column)
         }
+    }
+
+    @objc private func loadMore() {
+        appState.loadMoreRows()
     }
 
     @objc private func copyAll() {
