@@ -11,4 +11,5 @@ struct Snippet: Identifiable, Codable, Hashable {
     var sql: String = ""
     var folderID: UUID?
     var sortOrder: Int = 0
+    var labelColor: LabelColor?
 }

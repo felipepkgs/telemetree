@@ -44,6 +44,18 @@ final class SnippetStore: ObservableObject {
         saveSoon()
     }
 
+    func setLabelColor(_ snippetID: UUID, color: LabelColor?) {
+        guard let index = snippets.firstIndex(where: { $0.id == snippetID }) else { return }
+        snippets[index].labelColor = color
+        saveSoon()
+    }
+
+    func setFolderLabelColor(_ folderID: UUID, color: LabelColor?) {
+        guard let index = folders.firstIndex(where: { $0.id == folderID }) else { return }
+        folders[index].labelColor = color
+        saveSoon()
+    }
+
     @discardableResult
     func duplicate(_ snippetID: UUID) -> Snippet? {
         guard let original = snippet(id: snippetID) else { return nil }

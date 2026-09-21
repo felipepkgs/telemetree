@@ -8,4 +8,5 @@ struct QueryDocument: Identifiable, Codable, Hashable {
     var folderID: UUID?
     var sortOrder: Int = 0
     var updatedAt: Date = Date()
+    var labelColor: LabelColor?
 }

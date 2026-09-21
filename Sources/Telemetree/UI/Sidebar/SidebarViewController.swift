@@ -11,6 +11,18 @@ private struct SnippetMoveTarget {
     let folderID: UUID?
 }
 
+private enum LabelTarget {
+    case queryDocument(UUID)
+    case queryFolder(UUID)
+    case snippet(UUID)
+    case snippetFolder(UUID)
+}
+
+private struct LabelAssignment {
+    let target: LabelTarget
+    let color: LabelColor?
+}
+
 @MainActor
 final class SidebarViewController: NSViewController {
     private let appState: AppState
@@ -26,6 +38,7 @@ final class SidebarViewController: NSViewController {
     private let contextMenu = NSMenu()
     private let footer = NSView()
     private let searchField = NSSearchField()
+    private var trashActions: [NSButton: () -> Void] = [:]
 
     private var searchText: String = "" {
         didSet {
@@ -539,6 +552,33 @@ final class SidebarViewController: NSViewController {
         rebuildSnippetsTree()
     }
 
+    private func buildLabelMenu(for target: LabelTarget) -> NSMenu {
+        let submenu = NSMenu()
+        submenu.addItem(menuItem("None", action: #selector(setLabelColor(_:)), representedObject: LabelAssignment(target: target, color: nil)))
+        submenu.addItem(.separator())
+        for color in LabelColor.allCases {
+            let item = menuItem(color.name, action: #selector(setLabelColor(_:)), representedObject: LabelAssignment(target: target, color: color))
+            item.image = color.swatchImage()
+            submenu.addItem(item)
+        }
+        return submenu
+    }
+
+    @objc private func setLabelColor(_ sender: NSMenuItem) {
+        guard let assignment = sender.representedObject as? LabelAssignment else { return }
+        switch assignment.target {
+        case .queryDocument(let id):
+            appState.queryStore.setLabelColor(id, color: assignment.color)
+        case .queryFolder(let id):
+            appState.queryStore.setFolderLabelColor(id, color: assignment.color)
+        case .snippet(let id):
+            appState.snippetStore.setLabelColor(id, color: assignment.color)
+        case .snippetFolder(let id):
+            appState.snippetStore.setFolderLabelColor(id, color: assignment.color)
+        }
+        outlineView.reloadData()
+    }
+
     private func buildMoveToFolderMenu(for snippet: Snippet) -> NSMenu {
         let submenu = NSMenu()
         submenu.addItem(menuItem("Root", action: #selector(moveSnippetToFolder(_:)), representedObject: SnippetMoveTarget(snippetID: snippet.id, folderID: nil)))
@@ -565,6 +605,9 @@ extension SidebarViewController: NSMenuDelegate {
             let moveItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
             moveItem.submenu = buildMoveToFolderMenu(for: document)
             menu.addItem(moveItem)
+            let labelItem = NSMenuItem(title: "Label", action: nil, keyEquivalent: "")
+            labelItem.submenu = buildLabelMenu(for: .queryDocument(document.id))
+            menu.addItem(labelItem)
             menu.addItem(.separator())
             menu.addItem(menuItem("Delete", action: #selector(deleteDocument(_:)), representedObject: document))
         case .queryFolder(let folder):
@@ -572,6 +615,9 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(menuItem("New Subfolder", action: #selector(newQuerySubfolder(_:)), representedObject: folder))
             menu.addItem(.separator())
             menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))
+            let labelItem = NSMenuItem(title: "Label", action: nil, keyEquivalent: "")
+            labelItem.submenu = buildLabelMenu(for: .queryFolder(folder.id))
+            menu.addItem(labelItem)
             menu.addItem(menuItem("Delete Folder", action: #selector(deleteQueryFolder(_:)), representedObject: folder))
         case .snippet(let snippet):
             menu.addItem(menuItem("Insert into Editor", action: #selector(insertSnippet(_:)), representedObject: snippet))
@@ -582,6 +628,9 @@ extension SidebarViewController: NSMenuDelegate {
             let moveItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
             moveItem.submenu = buildMoveToFolderMenu(for: snippet)
             menu.addItem(moveItem)
+            let labelItem = NSMenuItem(title: "Label", action: nil, keyEquivalent: "")
+            labelItem.submenu = buildLabelMenu(for: .snippet(snippet.id))
+            menu.addItem(labelItem)
             menu.addItem(.separator())
             menu.addItem(menuItem("Delete", action: #selector(deleteSnippet(_:)), representedObject: snippet))
         case .snippetFolder(let folder):
@@ -589,6 +638,9 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(menuItem("New Subfolder", action: #selector(newSnippetSubfolder(_:)), representedObject: folder))
             menu.addItem(.separator())
             menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))
+            let labelItem = NSMenuItem(title: "Label", action: nil, keyEquivalent: "")
+            labelItem.submenu = buildLabelMenu(for: .snippetFolder(folder.id))
+            menu.addItem(labelItem)
             menu.addItem(menuItem("Delete Folder", action: #selector(deleteSnippetFolder(_:)), representedObject: folder))
         case .sectionHeader, .database, .table, .placeholder:
             break
@@ -684,21 +736,29 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         guard let node = item as? SidebarNode else { return nil }
         let identifier = NSUserInterfaceItemIdentifier("SidebarCell")
 
-        let cell: NSTableCellView
+        let cell: HoverTrackingCellView
         let textField: NSTextField
         let imageView: NSImageView
         let dotView: StatusDotView
+        let labelDotView: NSView
+        let trashButton: NSButton
         let dotIdentifier = NSUserInterfaceItemIdentifier("StatusDot")
+        let labelDotIdentifier = NSUserInterfaceItemIdentifier("LabelDot")
+        let trashIdentifier = NSUserInterfaceItemIdentifier("TrashButton")
 
-        if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView,
+        if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? HoverTrackingCellView,
            let reusedText = reused.textField, let reusedImage = reused.imageView,
-           let reusedDot = reused.subviews.first(where: { $0.identifier == dotIdentifier }) as? StatusDotView {
+           let reusedDot = reused.subviews.first(where: { $0.identifier == dotIdentifier }) as? StatusDotView,
+           let reusedLabelDot = reused.subviews.first(where: { $0.identifier == labelDotIdentifier }),
+           let reusedTrash = reused.subviews.first(where: { $0.identifier == trashIdentifier }) as? NSButton {
             cell = reused
             textField = reusedText
             imageView = reusedImage
             dotView = reusedDot
+            labelDotView = reusedLabelDot
+            trashButton = reusedTrash
         } else {
-            cell = NSTableCellView()
+            cell = HoverTrackingCellView()
             cell.identifier = identifier
 
             imageView = NSImageView()
@@ -719,6 +779,21 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             dotView.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(dotView)
 
+            labelDotView = NSView()
+            labelDotView.identifier = labelDotIdentifier
+            labelDotView.wantsLayer = true
+            labelDotView.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(labelDotView)
+
+            trashButton = NSButton(image: AppIcon.trash.image, target: nil, action: nil)
+            trashButton.identifier = trashIdentifier
+            trashButton.isBordered = false
+            trashButton.bezelStyle = .inline
+            trashButton.contentTintColor = .systemRed
+            trashButton.isHidden = true
+            trashButton.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(trashButton)
+
             NSLayoutConstraint.activate([
                 imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
                 imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
@@ -726,21 +801,54 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                 imageView.heightAnchor.constraint(equalToConstant: 16),
 
                 textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -16),
+                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -18),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
 
                 dotView.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 dotView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 dotView.widthAnchor.constraint(equalToConstant: 8),
-                dotView.heightAnchor.constraint(equalToConstant: 8)
+                dotView.heightAnchor.constraint(equalToConstant: 8),
+
+                labelDotView.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                labelDotView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                labelDotView.widthAnchor.constraint(equalToConstant: 8),
+                labelDotView.heightAnchor.constraint(equalToConstant: 8),
+
+                trashButton.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                trashButton.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                trashButton.widthAnchor.constraint(equalToConstant: 14),
+                trashButton.heightAnchor.constraint(equalToConstant: 14)
             ])
         }
+
+        labelDotView.layer?.cornerRadius = 4
 
         textField.stringValue = node.title
         textField.textColor = .labelColor
         textField.isEditable = false
         imageView.isHidden = false
         dotView.isHidden = true
+        labelDotView.isHidden = true
+        trashButton.isHidden = true
+        trashButton.target = nil
+        trashButton.action = nil
+        cell.onHoverChange = nil
+
+        if let color = labelColorValue(for: node.kind) {
+            labelDotView.isHidden = false
+            labelDotView.layer?.backgroundColor = color.color.cgColor
+        }
+
+        if let deleteAction = deleteAction(for: node) {
+            cell.onHoverChange = { [weak trashButton, weak labelDotView] hovering in
+                trashButton?.isHidden = !hovering
+                if hovering { labelDotView?.isHidden = true }
+            }
+            trashButton.target = self
+            trashButton.action = #selector(self.trashButtonTapped(_:))
+            trashButton.identifier = trashIdentifier
+            trashActions[trashButton] = deleteAction
+        }
 
         switch node.kind {
         case .sectionHeader:
@@ -791,5 +899,67 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         }
 
         return cell
+    }
+
+    private func labelColorValue(for kind: SidebarNode.Kind) -> LabelColor? {
+        switch kind {
+        case .queryDocument(let document): return document.labelColor
+        case .queryFolder(let folder): return folder.labelColor
+        case .snippet(let snippet): return snippet.labelColor
+        case .snippetFolder(let folder): return folder.labelColor
+        default: return nil
+        }
+    }
+
+    private func deleteAction(for node: SidebarNode) -> (() -> Void)? {
+        switch node.kind {
+        case .queryDocument(let document):
+            return { [weak self] in self?.confirmDelete(title: document.name) {
+                self?.appState.closeDocument(document.id)
+                self?.appState.queryStore.delete(document.id)
+                self?.rebuildQueriesTree()
+            } }
+        case .queryFolder(let folder):
+            return { [weak self] in self?.confirmDelete(title: folder.name, isFolder: true) {
+                self?.appState.queryStore.deleteFolder(folder.id)
+                self?.rebuildQueriesTree()
+            } }
+        case .snippet(let snippet):
+            return { [weak self] in self?.confirmDelete(title: snippet.name) {
+                self?.appState.snippetStore.delete(snippet.id)
+                self?.rebuildSnippetsTree()
+            } }
+        case .snippetFolder(let folder):
+            return { [weak self] in self?.confirmDelete(title: folder.name, isFolder: true) {
+                self?.appState.snippetStore.deleteFolder(folder.id)
+                self?.rebuildSnippetsTree()
+            } }
+        default:
+            return nil
+        }
+    }
+
+    private func confirmDelete(title: String, isFolder: Bool = false, action: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "Delete “\(title)”?"
+        alert.informativeText = isFolder
+            ? "Its contents will be moved to the root. This cannot be undone."
+            : "This cannot be undone."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        guard let window = view.window else {
+            action()
+            return
+        }
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                action()
+            }
+        }
+    }
+
+    @objc private func trashButtonTapped(_ sender: NSButton) {
+        trashActions[sender]?()
     }
 }

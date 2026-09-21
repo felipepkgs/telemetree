@@ -51,6 +51,18 @@ final class QueryStore: ObservableObject {
         saveSoon()
     }
 
+    func setLabelColor(_ documentID: UUID, color: LabelColor?) {
+        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
+        documents[index].labelColor = color
+        saveSoon()
+    }
+
+    func setFolderLabelColor(_ folderID: UUID, color: LabelColor?) {
+        guard let index = folders.firstIndex(where: { $0.id == folderID }) else { return }
+        folders[index].labelColor = color
+        saveSoon()
+    }
+
     @discardableResult
     func duplicate(_ documentID: UUID) -> QueryDocument? {
         guard let original = document(id: documentID) else { return nil }

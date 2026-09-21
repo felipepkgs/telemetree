@@ -5,4 +5,5 @@ struct SnippetFolder: Identifiable, Codable, Hashable {
     var name: String
     var parentID: UUID?
     var sortOrder: Int = 0
+    var labelColor: LabelColor?
 }

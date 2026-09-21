@@ -13,6 +13,7 @@ enum AppIcon: String {
     case snippet = "snippet"
     case warning = "error"
     case close = "multiply"
+    case trash = "trash"
 
     /// Point size icons render at by default — the source PNGs are fetched
     /// at 100px for Retina headroom, but AppKit displays NSImage at its
