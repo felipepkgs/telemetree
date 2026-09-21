@@ -244,7 +244,9 @@ code, .mono { font-family: "Geist Mono", ui-monospace, Menlo, monospace; }
   border-radius: 6px;
 }
 
-/* window-chrome frame around screenshots, echoing the app's own titlebar */
+/* Plain rounded card around screenshots — no fake title bar: the real
+   screenshots already carry the app's own genuine window chrome, so
+   drawing a second, synthetic one on top read as forged/staged. */
 
 .frame {
   border-radius: var(--radius-lg);
@@ -252,22 +254,6 @@ code, .mono { font-family: "Geist Mono", ui-monospace, Menlo, monospace; }
   background: var(--surface);
   box-shadow: var(--shadow);
   overflow: hidden;
-}
-
-.frame-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 11px 14px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-}
-
-.frame-bar span {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: #3a3a3e;
 }
 
 .frame img { width: 100%; }
