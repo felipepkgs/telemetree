@@ -23,7 +23,7 @@ enum AppIcon: String {
     private static let defaultPointSize = NSSize(width: 16, height: 16)
 
     var image: NSImage {
-        guard let url = Bundle.module.url(forResource: rawValue, withExtension: "png", subdirectory: "Icons"),
+        guard let url = TelemetreeResources.url(forResource: rawValue, withExtension: "png", subdirectory: "Icons"),
               let image = NSImage(contentsOf: url) else {
             return NSImage()
         }
