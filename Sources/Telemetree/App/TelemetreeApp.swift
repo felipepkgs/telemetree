@@ -20,6 +20,9 @@ final class TelemetreeApp: NSObject, NSApplicationDelegate {
         let aboutItem = appMenu.addItem(withTitle: "About Telemetree", action: #selector(showAbout(_:)), keyEquivalent: "")
         aboutItem.target = self
         appMenu.addItem(.separator())
+        let preferencesItem = appMenu.addItem(withTitle: "Preferences…", action: #selector(showPreferences(_:)), keyEquivalent: ",")
+        preferencesItem.target = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Telemetree", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
@@ -73,8 +76,10 @@ final class TelemetreeApp: NSObject, NSApplicationDelegate {
         return mainMenu
     }
 
+    private var appState: AppState?
     private var windowController: MainWindowController?
     private var aboutWindowController: AboutWindowController?
+    private var preferencesWindowController: PreferencesWindowController?
 
     @objc private func showAbout(_ sender: Any?) {
         let controller = aboutWindowController ?? AboutWindowController()
@@ -84,8 +89,19 @@ final class TelemetreeApp: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showPreferences(_ sender: Any?) {
+        guard let appState else { return }
+        let controller = preferencesWindowController ?? PreferencesWindowController(appState: appState)
+        preferencesWindowController = controller
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let windowController = MainWindowController(appState: AppState())
+        let appState = AppState()
+        self.appState = appState
+        let windowController = MainWindowController(appState: appState)
         windowController.showWindow(nil)
         windowController.window?.makeKeyAndOrderFront(nil)
         self.windowController = windowController

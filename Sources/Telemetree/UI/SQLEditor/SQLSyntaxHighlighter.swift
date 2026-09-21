@@ -34,12 +34,16 @@ final class SQLSyntaxHighlighter: NSObject, NSTextStorageDelegate {
     private static let blockCommentRegex = try! NSRegularExpression(pattern: #"/\*[\s\S]*?\*/"#)
     private static let backtickRegex = try! NSRegularExpression(pattern: #"`[^`]*`"#)
 
-    private let baseFont: NSFont
-    private let keywordFont: NSFont
+    var font: NSFont
+    var theme: SyntaxTheme
 
-    init(fontSize: CGFloat = 12) {
-        baseFont = FontLibrary.mono(fontSize)
-        keywordFont = FontLibrary.mono(fontSize, weight: .medium)
+    private var keywordFont: NSFont {
+        NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+    }
+
+    init(font: NSFont? = nil, theme: SyntaxTheme = .default) {
+        self.font = font ?? FontLibrary.mono(12)
+        self.theme = theme
     }
 
     func textStorage(
@@ -59,36 +63,36 @@ final class SQLSyntaxHighlighter: NSObject, NSTextStorageDelegate {
         let string = text as String
 
         textStorage.beginEditing()
-        textStorage.setAttributes([.font: baseFont, .foregroundColor: NSColor.labelColor], range: fullRange)
+        textStorage.setAttributes([.font: font, .foregroundColor: theme.text], range: fullRange)
 
         for match in Self.numberRegex.matches(in: string, range: fullRange) {
-            textStorage.addAttribute(.foregroundColor, value: NSColor.systemTeal, range: match.range)
+            textStorage.addAttribute(.foregroundColor, value: theme.number, range: match.range)
         }
 
         for match in Self.backtickRegex.matches(in: string, range: fullRange) {
-            textStorage.addAttribute(.foregroundColor, value: NSColor.systemTeal, range: match.range)
+            textStorage.addAttribute(.foregroundColor, value: theme.number, range: match.range)
         }
 
         for match in Self.identifierRegex.matches(in: string, range: fullRange) {
             let word = text.substring(with: match.range).lowercased()
             guard Self.keywords.contains(word) else { continue }
-            textStorage.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: match.range)
+            textStorage.addAttribute(.foregroundColor, value: theme.keyword, range: match.range)
             textStorage.addAttribute(.font, value: keywordFont, range: match.range)
         }
 
         for match in Self.stringRegex.matches(in: string, range: fullRange) {
-            textStorage.addAttribute(.foregroundColor, value: NSColor.systemRed, range: match.range)
-            textStorage.addAttribute(.font, value: baseFont, range: match.range)
+            textStorage.addAttribute(.foregroundColor, value: theme.string, range: match.range)
+            textStorage.addAttribute(.font, value: font, range: match.range)
         }
 
         for match in Self.lineCommentRegex.matches(in: string, range: fullRange) {
-            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: match.range)
-            textStorage.addAttribute(.font, value: baseFont, range: match.range)
+            textStorage.addAttribute(.foregroundColor, value: theme.comment, range: match.range)
+            textStorage.addAttribute(.font, value: font, range: match.range)
         }
 
         for match in Self.blockCommentRegex.matches(in: string, range: fullRange) {
-            textStorage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: match.range)
-            textStorage.addAttribute(.font, value: baseFont, range: match.range)
+            textStorage.addAttribute(.foregroundColor, value: theme.comment, range: match.range)
+            textStorage.addAttribute(.font, value: font, range: match.range)
         }
 
         textStorage.endEditing()

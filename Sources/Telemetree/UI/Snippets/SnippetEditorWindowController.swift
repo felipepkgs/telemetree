@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// The one thing that was missing from the snippet library: an actual way
 /// to put SQL into a snippet. Selecting a snippet in the sidebar inserts
@@ -10,6 +11,7 @@ final class SnippetEditorWindowController: NSWindowController {
     private let snippetID: UUID
     private let textView = NSTextView()
     private let syntaxHighlighter = SQLSyntaxHighlighter()
+    private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState, snippetID: UUID) {
         self.appState = appState
@@ -36,11 +38,12 @@ final class SnippetEditorWindowController: NSWindowController {
         guard let contentView = window?.contentView else { return }
 
         textView.isRichText = false
-        textView.font = FontLibrary.mono(12)
+        textView.font = appState.fontPreferences.font
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticTextCompletionEnabled = true
         textView.allowsUndo = true
         textView.delegate = self
         textView.textContainerInset = NSSize(width: 8, height: 8)
@@ -73,9 +76,22 @@ final class SnippetEditorWindowController: NSWindowController {
             doneButton.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12)
         ])
 
-        if let textStorage = textView.textStorage {
-            syntaxHighlighter.highlight(textStorage)
-        }
+        Publishers.CombineLatest(appState.fontPreferences.$choice, appState.fontPreferences.$size)
+            .combineLatest(appState.syntaxThemeStore.$current)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, syntaxTheme in self?.applyFontAndSyntaxTheme(syntaxTheme) }
+            .store(in: &cancellables)
+
+        applyFontAndSyntaxTheme(appState.syntaxThemeStore.current)
+    }
+
+    private func applyFontAndSyntaxTheme(_ syntaxTheme: SyntaxTheme) {
+        guard let textStorage = textView.textStorage else { return }
+        let font = appState.fontPreferences.font
+        textView.font = font
+        syntaxHighlighter.font = font
+        syntaxHighlighter.theme = syntaxTheme
+        syntaxHighlighter.highlight(textStorage)
     }
 
     @objc private func closeWindow() {
@@ -86,5 +102,20 @@ final class SnippetEditorWindowController: NSWindowController {
 extension SnippetEditorWindowController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         appState.snippetStore.updateSQL(snippetID, sql: textView.string)
+        textView.complete(nil)
+    }
+
+    func textView(
+        _ textView: NSTextView,
+        completions words: [String],
+        forPartialWordRange charRange: NSRange,
+        indexOfSelectedItem index: UnsafeMutablePointer<Int>?
+    ) -> [String] {
+        let partial = (textView.string as NSString).substring(with: charRange).lowercased()
+        guard !partial.isEmpty else { return [] }
+        return SQLSyntaxHighlighter.keywords
+            .filter { $0.hasPrefix(partial) }
+            .sorted()
+            .map { $0.uppercased() }
     }
 }

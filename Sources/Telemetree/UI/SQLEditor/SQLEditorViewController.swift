@@ -58,7 +58,7 @@ final class SQLEditorViewController: NSViewController {
         toolbar.addSubview(runButton)
 
         textView.isRichText = false
-        textView.font = FontLibrary.mono(12)
+        textView.font = appState.fontPreferences.font
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
@@ -131,12 +131,28 @@ final class SQLEditorViewController: NSViewController {
 
         applyTheme(appState.themeStore.current)
 
+        Publishers.CombineLatest(appState.fontPreferences.$choice, appState.fontPreferences.$size)
+            .combineLatest(appState.syntaxThemeStore.$current)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, syntaxTheme in self?.applyFontAndSyntaxTheme(syntaxTheme) }
+            .store(in: &appCancellables)
+
+        applyFontAndSyntaxTheme(appState.syntaxThemeStore.current)
+
         appState.insertRequests
             .receive(on: DispatchQueue.main)
             .sink { [weak self] sql in self?.insertSnippet(sql) }
             .store(in: &appCancellables)
 
         bindActiveDocument()
+    }
+
+    private func applyFontAndSyntaxTheme(_ syntaxTheme: SyntaxTheme) {
+        let font = appState.fontPreferences.font
+        textView.font = font
+        syntaxHighlighter.font = font
+        syntaxHighlighter.theme = syntaxTheme
+        applyHighlighting()
     }
 
     private func insertSnippet(_ sql: String) {

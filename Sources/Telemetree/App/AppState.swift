@@ -8,6 +8,8 @@ final class AppState: ObservableObject {
     let queryStore = QueryStore()
     let snippetStore = SnippetStore()
     let themeStore = ThemeStore()
+    let syntaxThemeStore = SyntaxThemeStore()
+    let fontPreferences = FontPreferencesStore()
     let historyStore = QueryHistoryStore()
 
     /// One-shot "insert this SQL at the caret" events for the active
