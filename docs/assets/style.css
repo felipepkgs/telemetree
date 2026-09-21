@@ -357,6 +357,7 @@ section { padding: 88px 0; }
 
 .carousel-track {
   display: flex;
+  align-items: flex-start;
   gap: 24px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
@@ -375,39 +376,47 @@ section { padding: 88px 0; }
   min-width: 0;
 }
 
+.carousel-item .frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Nav row below the track — not overlaid on the screenshots, so it never
+   fights with image content for contrast and never needs to guess where
+   a variable-height slide's vertical center actually is. */
+.carousel-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
 .carousel-btn {
-  position: absolute;
-  top: 44%;
-  transform: translateY(-50%);
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 1px solid var(--border-strong);
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2;
-  transition: opacity 0.15s;
+  transition: border-color 0.15s, opacity 0.15s;
 }
 
 .carousel-btn:hover { border-color: var(--text-secondary); }
 
 .carousel-btn:disabled { opacity: 0.3; cursor: default; }
 
-.carousel-btn.prev { left: -8px; }
-
-.carousel-btn.next { right: -8px; }
-
 .carousel-dots {
   display: flex;
-  justify-content: center;
+  align-items: center;
   gap: 8px;
-  margin-top: 20px;
 }
 
 .carousel-dot {
@@ -559,8 +568,6 @@ footer p {
 @media (max-width: 860px) {
   .grid { grid-template-columns: 1fr 1fr; }
   .status-columns { grid-template-columns: 1fr; gap: 32px; }
-  .carousel-btn.prev { left: -4px; }
-  .carousel-btn.next { right: -4px; }
 }
 
 @media (max-width: 560px) {
