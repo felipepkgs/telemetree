@@ -34,11 +34,16 @@ struct DatabaseTable: Identifiable, Hashable {
 enum DatabaseError: LocalizedError {
     case connectionFailed(String)
     case queryFailed(String)
+    /// The underlying socket is gone (as opposed to a normal query-level
+    /// failure where the connection itself is still fine) — lets
+    /// AppState flip the sidebar's connected state to match reality.
+    case connectionLost(String)
 
     var errorDescription: String? {
         switch self {
         case .connectionFailed(let message): return "Connection failed: \(message)"
         case .queryFailed(let message): return message
+        case .connectionLost(let message): return message
         }
     }
 }

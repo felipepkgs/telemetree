@@ -293,6 +293,80 @@ targets macOS 14 vs. GhostBar's 13).
   Homebrew 5.1.14+, so this may no longer be strictly necessary; not
   migrated since the user called it cosmetic and asked to leave it.
 
+## M5: accessibility, error handling, performance
+
+- **Accessibility**: previously zero — icon-only buttons and custom views
+  had no VoiceOver labels, and the document tab bar (`TabButtonView`) was
+  a plain `NSView` with a `mouseDown` override, meaning tab switching was
+  completely invisible to VoiceOver/keyboard navigation, not just
+  under-labeled.
+  - `TabButtonView` is now a real `AXButton` (`isAccessibilityElement`/
+    `accessibilityRole`/`accessibilityLabel` overridden, `accessibilityPerformPress()`
+    calls `onSelect`).
+  - Icon-only buttons (tab close, sidebar add, sidebar delete) get real
+    labels via a new `UI/AccessibleIconButton.swift`.
+  - Sidebar rows get one composed accessibility description each (e.g.
+    "Local Test, connection, connected", "All Users, query, active,
+    labeled Red") via `HoverTrackingCellView.accessibilityDescriptionOverride`,
+    rather than making every row's icon/dot/label-color indicator its own
+    separately-focusable element.
+  - **Real, hard-won gotcha, not guessed**: `NSButton.accessibilityLabel()`
+    and `NSTableCellView.accessibilityLabel()` both silently ignore
+    `setAccessibilityLabel(_:)` — they compute their own value internally
+    (from `.title`, from the cell's `.textField`) regardless of what the
+    setter stores. The fix in both cases is overriding the *getter*
+    directly in a subclass, not calling the informal-protocol setter.
+    Confirmed via direct `AXUIElementCopyAttributeValue` inspection
+    (Python + `ApplicationServices`, bypassing AppleScript's System Events
+    translation layer, which turned out to read `AXRoleDescription` — a
+    generic per-role string like "button" — under its "description"
+    property, not the actual accessibility label; that mismatch cost a
+    lot of wasted verification time before catching it).
+  - **Known, disclosed limitation**: even after the getter-override fix,
+    local verification (`swift build` dev binary, ad-hoc signed, run
+    directly) still doesn't show the custom labels via direct
+    `AXUIElementCopyAttributeValue` calls — confirmed with a hardcoded,
+    unconditional return value in the override, ruling out any
+    property-storage bug. The verification method itself was proven
+    sound (identical script correctly reads Finder's real, localized
+    icon-button labels). The code is correct, standard AppKit API usage;
+    something about this specific non-Xcode, ad-hoc-signed dev build
+    environment doesn't surface it to an external AX client. Whether the
+    *CI-built, properly-packaged* release behaves differently is
+    untested — worth a real VoiceOver pass on an actual shipped build
+    before trusting this fully.
+- **Error handling**: `Database/FriendlyError.swift` maps common MySQL
+  error codes (1045 access denied, 1044/1049 unknown database, 1146 no
+  such table, 1054 unknown column, 1205 lock wait timeout, 1213 deadlock)
+  to plain-English messages instead of raw server text, using MySQLNIO's
+  actual `ERR_Packet.errorCode.rawValue` — verified each code against the
+  vendored `MySQLProtocol+ErrorCode.swift`, not guessed. Connection-level
+  failures (refused/timeout/unreachable) get a best-effort keyword-matched
+  message, since NIO doesn't give a structured error type for those here.
+  `DatabaseError.connectionLost` is a new case, thrown when the failure
+  means the socket itself is gone (vs. a normal query-level failure where
+  the connection is still fine); `AppState.executeCurrentSQL` catches it
+  and calls the new `ConnectionManager.markDisconnected`, so the sidebar's
+  status dot flips to "not connected" instead of staying green against a
+  dead connection, and the next query attempt reconnects fresh rather than
+  repeatedly failing against a closed socket.
+  Not E2E-verified against a live error (connecting via the sidebar
+  requires a real double-click, which — same as always in this
+  environment — can't be reliably synthesized); verified instead by
+  cross-checking every mapped error code against MySQLNIO's real error
+  table and a full clean build.
+- **Performance**: the original MVP gap (unbounded row fetch) was already
+  fixed earlier via pagination (see above). For this pass, wrote a
+  throwaway standalone script (`Sources/StressTest`, removed after use —
+  not shipped) that exercised the *actual* driver/pagination code path
+  directly against a real 5,000-row MySQL table, since the AppKit UI
+  can't be automated here either. Results: full unpaginated fetch of
+  5,000 rows ~0.1s; paginated 500-row pages ~7-10ms each, consistently
+  fast regardless of page depth (page 1 and a deep `OFFSET 4500` page
+  timed the same); page boundaries verified contiguous (no gap/overlap
+  between consecutive pages). No profiling infrastructure was added
+  permanently — this was a one-off verification, not a lasting tool.
+
 ## Other follow-ups noted during development
 
 - **Dev signing**: `swift build` produces an ad-hoc-signed binary whose

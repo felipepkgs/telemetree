@@ -180,6 +180,9 @@ final class AppState: ObservableObject {
                 historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: true, errorMessage: nil)
             } catch {
                 state.errorMessage = error.localizedDescription
+                if case DatabaseError.connectionLost = error {
+                    connectionManager.markDisconnected(profileID)
+                }
                 historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: false, errorMessage: error.localizedDescription)
             }
             state.isExecuting = false

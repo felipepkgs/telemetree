@@ -62,6 +62,15 @@ final class ConnectionManager: ObservableObject {
         connectedIDs.remove(profile.id)
     }
 
+    /// The socket died under us (server restart, network drop) — drop the
+    /// dead connection so the sidebar's status dot reflects reality and the
+    /// next query attempt reconnects fresh instead of repeatedly failing
+    /// against a closed connection.
+    func markDisconnected(_ profileID: UUID) {
+        connections[profileID] = nil
+        connectedIDs.remove(profileID)
+    }
+
     func testConnection(_ profile: ConnectionProfile, password: String) async -> Result<Void, Error> {
         do {
             let connection = try await driver.connect(profile: profile, password: password)

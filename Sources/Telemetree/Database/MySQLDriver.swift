@@ -20,7 +20,7 @@ final class MySQLDriver: DatabaseDriver {
             return MySQLDatabaseConnection(connection: connection, eventLoopGroup: group)
         } catch {
             try? await group.shutdownGracefully()
-            throw DatabaseError.connectionFailed(error.localizedDescription)
+            throw DatabaseError.connectionFailed(FriendlyError.message(for: error))
         }
     }
 }
@@ -56,7 +56,11 @@ final class MySQLDatabaseConnection: DatabaseConnection {
         } catch let error as DatabaseError {
             throw error
         } catch {
-            throw DatabaseError.queryFailed(error.localizedDescription)
+            let friendly = FriendlyError.message(for: error)
+            if FriendlyError.isConnectionLost(error) {
+                throw DatabaseError.connectionLost(friendly)
+            }
+            throw DatabaseError.queryFailed(friendly)
         }
     }
 
