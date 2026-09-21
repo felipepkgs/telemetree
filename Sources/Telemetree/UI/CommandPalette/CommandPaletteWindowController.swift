@@ -1,6 +1,7 @@
 import AppKit
 
 private struct PaletteItem {
+    let id: String
     let title: String
     let category: String
     let action: () -> Void
@@ -49,8 +50,12 @@ final class CommandPaletteWindowController: NSWindowController {
 
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
-        reload()
+        // Clear the field *before* reload()/refilter — reload() filters
+        // using whatever's currently in searchField, so clearing it after
+        // left the field looking empty while the row list stayed stuck on
+        // the previous search's single result.
         searchField.stringValue = ""
+        reload()
         window?.makeFirstResponder(searchField)
     }
 
@@ -105,35 +110,35 @@ final class CommandPaletteWindowController: NSWindowController {
         var items: [PaletteItem] = []
 
         for document in appState.queryStore.documents.sorted(by: { $0.name < $1.name }) {
-            items.append(PaletteItem(title: document.name, category: "Query") { [weak appState] in
+            items.append(PaletteItem(id: "query:\(document.id)", title: document.name, category: "Query") { [weak appState] in
                 appState?.openDocument(document.id)
             })
         }
         for snippet in appState.snippetStore.snippets.sorted(by: { $0.name < $1.name }) {
-            items.append(PaletteItem(title: snippet.name, category: "Snippet") { [weak appState] in
+            items.append(PaletteItem(id: "snippet:\(snippet.id)", title: snippet.name, category: "Snippet") { [weak appState] in
                 appState?.insertSnippetIntoActiveEditor(snippet.sql)
             })
         }
         for profile in appState.connectionManager.profiles.sorted(by: { $0.name < $1.name }) {
-            items.append(PaletteItem(title: profile.name, category: "Connection") { [weak appState] in
+            items.append(PaletteItem(id: "connection:\(profile.id)", title: profile.name, category: "Connection") { [weak appState] in
                 appState?.setActiveConnection(profile.id)
             })
         }
 
-        items.append(PaletteItem(title: "New Query", category: "Action") { [weak appState] in
+        items.append(PaletteItem(id: "action:new-query", title: "New Query", category: "Action") { [weak appState] in
             appState?.newDocument()
         })
-        items.append(PaletteItem(title: "New Snippet", category: "Action") { [weak appState] in
+        items.append(PaletteItem(id: "action:new-snippet", title: "New Snippet", category: "Action") { [weak appState] in
             appState?.snippetStore.createSnippet()
         })
-        items.append(PaletteItem(title: "Run Current Query", category: "Action") { [weak appState] in
+        items.append(PaletteItem(id: "action:run-query", title: "Run Current Query", category: "Action") { [weak appState] in
             appState?.executeCurrentSQL()
         })
-        items.append(PaletteItem(title: "Query History", category: "Action") { [weak self] in
+        items.append(PaletteItem(id: "action:query-history", title: "Query History", category: "Action") { [weak self] in
             self?.openHistory()
         })
         for theme in Theme.all {
-            items.append(PaletteItem(title: "Theme: \(theme.name)", category: "Action") { [weak appState] in
+            items.append(PaletteItem(id: "theme:\(theme.id)", title: "Theme: \(theme.name)", category: "Action") { [weak appState] in
                 appState?.themeStore.select(theme)
             })
         }
@@ -142,8 +147,33 @@ final class CommandPaletteWindowController: NSWindowController {
         refilter(query: searchField.stringValue)
     }
 
+    // MARK: - Usage tracking ("most used")
+
+    private static let usageDefaultsKey = "commandPaletteUsageCounts"
+
+    private func usageCounts() -> [String: Int] {
+        UserDefaults.standard.dictionary(forKey: Self.usageDefaultsKey) as? [String: Int] ?? [:]
+    }
+
+    private func recordUsage(_ id: String) {
+        var counts = usageCounts()
+        counts[id, default: 0] += 1
+        UserDefaults.standard.set(counts, forKey: Self.usageDefaultsKey)
+    }
+
     private func refilter(query: String) {
-        filteredItems = query.isEmpty ? allItems : allItems.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        let matches = query.isEmpty ? allItems : allItems.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        let counts = usageCounts()
+        // Most-used first (ties broken alphabetically) — applies both to
+        // the empty-query default list and to search results, so a
+        // frequently-used item still surfaces near the top of a broader
+        // match set, not just when the palette is first opened.
+        filteredItems = matches.sorted { a, b in
+            let countA = counts[a.id] ?? 0
+            let countB = counts[b.id] ?? 0
+            if countA != countB { return countA > countB }
+            return a.title.localizedCaseInsensitiveCompare(b.title) == .orderedAscending
+        }
         tableView.reloadData()
         if !filteredItems.isEmpty {
             tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
@@ -162,6 +192,7 @@ final class CommandPaletteWindowController: NSWindowController {
         let row = tableView.selectedRow >= 0 ? tableView.selectedRow : 0
         guard row < filteredItems.count else { return }
         let item = filteredItems[row]
+        recordUsage(item.id)
         window?.close()
         item.action()
     }
@@ -170,6 +201,7 @@ final class CommandPaletteWindowController: NSWindowController {
         let row = tableView.clickedRow
         guard row >= 0, row < filteredItems.count else { return }
         let item = filteredItems[row]
+        recordUsage(item.id)
         window?.close()
         item.action()
     }

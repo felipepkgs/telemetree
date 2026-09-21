@@ -121,6 +121,23 @@ final class AppState: ObservableObject {
         insertRequests.send(sql)
     }
 
+    /// Clicking a database in the sidebar sets it as that connection's
+    /// default schema (a real `USE`, server-side — session state on the
+    /// shared connection, so it applies no matter which document/tab is
+    /// active) so an unqualified `SELECT * FROM orders` resolves without
+    /// having to write `` `database`.`orders` `` every time.
+    func selectDatabase(_ database: String, profileID: UUID) {
+        setActiveConnection(profileID)
+        Task {
+            if !connectionManager.connectedIDs.contains(profileID) {
+                guard let profile = connectionManager.profiles.first(where: { $0.id == profileID }) else { return }
+                await connectionManager.connect(profile)
+            }
+            guard let connection = connectionManager.connection(for: profileID) else { return }
+            _ = try? await connection.execute(sql: "USE `\(database)`")
+        }
+    }
+
     /// Reopens a history entry as a new query document.
     func reopenHistoryEntry(_ entry: QueryHistoryEntry) {
         let document = newDocument(connectionProfileID: entry.connectionProfileID)

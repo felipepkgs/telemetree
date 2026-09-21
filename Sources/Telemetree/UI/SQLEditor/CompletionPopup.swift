@@ -12,6 +12,7 @@ import AppKit
 final class CompletionPopup {
     private let window: NSWindow
     private let stackView = NSStackView()
+    private let outerStack = NSStackView()
     private(set) var candidates: [String] = []
     private(set) var selectedIndex = 0
     private var rowLabels: [NSTextField] = []
@@ -46,13 +47,41 @@ final class CompletionPopup {
         stackView.alignment = .width
         stackView.spacing = 0
         stackView.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        background.addSubview(stackView)
+
+        let divider = NSBox()
+        divider.boxType = .separator
+
+        // Issue #8: without this, there's no on-screen indication of which
+        // key accepts a suggestion or that anything other than Tab is safe
+        // to press — muted text rather than Icons8 kbd glyphs, to avoid
+        // pulling in new icon assets just for two key names.
+        let hint = NSTextField(labelWithString: "⇥ accept · space dismisses")
+        hint.font = .systemFont(ofSize: 10)
+        hint.textColor = .tertiaryLabelColor
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        let hintRow = NSView()
+        hintRow.translatesAutoresizingMaskIntoConstraints = false
+        hintRow.addSubview(hint)
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: background.topAnchor),
-            stackView.bottomAnchor.constraint(equalTo: background.bottomAnchor),
-            stackView.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: background.trailingAnchor)
+            hint.leadingAnchor.constraint(equalTo: hintRow.leadingAnchor, constant: 10),
+            hint.trailingAnchor.constraint(lessThanOrEqualTo: hintRow.trailingAnchor, constant: -10),
+            hint.topAnchor.constraint(equalTo: hintRow.topAnchor, constant: 3),
+            hint.bottomAnchor.constraint(equalTo: hintRow.bottomAnchor, constant: -3)
+        ])
+
+        outerStack.orientation = .vertical
+        outerStack.alignment = .width
+        outerStack.spacing = 0
+        outerStack.translatesAutoresizingMaskIntoConstraints = false
+        outerStack.addArrangedSubview(stackView)
+        outerStack.addArrangedSubview(divider)
+        outerStack.addArrangedSubview(hintRow)
+        background.addSubview(outerStack)
+        NSLayoutConstraint.activate([
+            outerStack.topAnchor.constraint(equalTo: background.topAnchor),
+            outerStack.bottomAnchor.constraint(equalTo: background.bottomAnchor),
+            outerStack.leadingAnchor.constraint(equalTo: background.leadingAnchor),
+            outerStack.trailingAnchor.constraint(equalTo: background.trailingAnchor)
         ])
         window.contentView = background
     }
@@ -64,8 +93,8 @@ final class CompletionPopup {
         selectedIndex = 0
         rebuildRows()
 
-        let size = stackView.fittingSize
-        window.setContentSize(NSSize(width: max(size.width, 140), height: size.height))
+        let size = outerStack.fittingSize
+        window.setContentSize(NSSize(width: max(size.width, 160), height: size.height))
         window.setFrameTopLeftPoint(screenPoint)
 
         if window.parent !== parent {

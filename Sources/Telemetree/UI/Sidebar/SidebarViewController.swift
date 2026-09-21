@@ -733,11 +733,13 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             appState.setActiveConnection(profile.id)
         case .table(let profile, let database, let table):
             appState.runQuery("SELECT * FROM `\(database)`.`\(table.name)` LIMIT 100;", connectionProfileID: profile.id)
+        case .database(let profile, let database):
+            appState.selectDatabase(database, profileID: profile.id)
         case .queryDocument(let document):
             appState.openDocument(document.id)
         case .snippet(let snippet):
             appState.insertSnippetIntoActiveEditor(snippet.sql)
-        case .sectionHeader, .database, .queryFolder, .snippetFolder, .placeholder:
+        case .sectionHeader, .queryFolder, .snippetFolder, .placeholder:
             break
         }
     }

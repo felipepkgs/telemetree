@@ -568,3 +568,28 @@ not yet reported as an issue in practice.
   one connection, so only keyword completion applies there; the
   identifier-position check still suppresses keyword suggestions in that
   case rather than falling back to something wrong.
+
+## Three open issues closed (#6, #7, #8)
+
+- **#6 — last-clicked database assumed by default**: clicking a database
+  node in the sidebar now runs a real `USE \`database\`` on that
+  connection's shared connection (`AppState.selectDatabase`) — session
+  state on the server, so it applies to every document/tab on that
+  connection, not just the one active when it was clicked. Also sets that
+  connection active, matching what clicking the connection node itself
+  already did. Known gap: table-name completion still lists tables from
+  the connection profile's originally-configured database, not whatever
+  was last `USE`'d — a reasonable follow-up, not done here.
+- **#7 — command palette state bug + "most used"**: `showWindow` cleared
+  `searchField.stringValue` *after* `reload()` had already filtered using
+  the stale query — the field looked empty on reopen but the row list
+  stayed stuck on the previous search's single result until you typed
+  something. Reordered so the clear happens first. Also added usage
+  tracking (`UserDefaults`, keyed by a stable per-item id) — the palette
+  now sorts by use count (ties broken alphabetically), both for the
+  empty-query default list and for search results.
+- **#8 — completion popup had no accept/dismiss hint**: added a muted
+  footer row ("⇥ accept · space dismisses") to `CompletionPopup`. The
+  issue asked for Icons8 kbd glyphs specifically; used plain muted text
+  instead to avoid pulling in new icon assets for two key names — a
+  reasonable-scope call, not a hard blocker if it turns out to matter.
