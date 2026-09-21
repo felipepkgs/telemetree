@@ -158,10 +158,11 @@ final class AppState: ObservableObject {
         // anything else (DML, or a SELECT that already has its own LIMIT)
         // runs exactly as written.
         let paginate = Self.isUnlimitedSelect(sql)
-        state.paginationBaseSQL = paginate ? sql : nil
+        let paginationBase = Self.stripTrailingSemicolon(sql)
+        state.paginationBaseSQL = paginate ? paginationBase : nil
         state.paginationOffset = 0
         state.hasMorePages = false
-        let runSQL = paginate ? "\(sql) LIMIT \(Self.resultPageSize)" : sql
+        let runSQL = paginate ? "\(paginationBase) LIMIT \(Self.resultPageSize)" : sql
 
         Task {
             if DestructiveSQLGuard.isDestructive(sql) {
@@ -224,6 +225,19 @@ final class AppState: ObservableObject {
     private static func isUnlimitedSelect(_ sql: String) -> Bool {
         sql.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().hasPrefix("SELECT")
             && sql.range(of: "limit", options: .caseInsensitive) == nil
+    }
+
+    /// A trailing `;` (near-universal SQL style) left in place before
+    /// appending `LIMIT ...`/`LIMIT ... OFFSET ...` produces invalid
+    /// syntax like `SELECT * FROM x; LIMIT 500` — found via a real MySQL
+    /// syntax error while testing pagination against a live connection,
+    /// not by inspection.
+    private static func stripTrailingSemicolon(_ sql: String) -> String {
+        var trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasSuffix(";") {
+            trimmed.removeLast()
+        }
+        return trimmed
     }
 
     /// Requires the system password or Touch ID before a destructive
