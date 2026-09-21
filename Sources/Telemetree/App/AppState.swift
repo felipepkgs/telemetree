@@ -8,6 +8,7 @@ final class AppState: ObservableObject {
     let queryStore = QueryStore()
     let snippetStore = SnippetStore()
     let themeStore = ThemeStore()
+    let historyStore = QueryHistoryStore()
 
     /// One-shot "insert this SQL at the caret" events for the active
     /// editor — not @Published state, since it's a fire-and-forget
@@ -118,6 +119,14 @@ final class AppState: ObservableObject {
         insertRequests.send(sql)
     }
 
+    /// Reopens a history entry as a new query document.
+    func reopenHistoryEntry(_ entry: QueryHistoryEntry) {
+        let document = newDocument(connectionProfileID: entry.connectionProfileID)
+        guard let state = state(for: document.id) else { return }
+        state.sql = entry.sql
+        queryStore.updateSQL(document.id, sql: entry.sql)
+    }
+
     func updateActiveSQL(_ sql: String) {
         guard let documentID = activeDocumentID, let state = state(for: documentID) else { return }
         state.sql = sql
@@ -133,6 +142,7 @@ final class AppState: ObservableObject {
             state.errorMessage = "No active connection. Connect to a database first."
             return
         }
+        let connectionName = connectionManager.profiles.first { $0.id == profileID }?.name ?? "Unknown"
 
         Task {
             if DestructiveSQLGuard.isDestructive(sql) {
@@ -146,8 +156,10 @@ final class AppState: ObservableObject {
             state.errorMessage = nil
             do {
                 state.queryResult = try await connection.execute(sql: sql)
+                historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: true, errorMessage: nil)
             } catch {
                 state.errorMessage = error.localizedDescription
+                historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: false, errorMessage: error.localizedDescription)
             }
             state.isExecuting = false
         }

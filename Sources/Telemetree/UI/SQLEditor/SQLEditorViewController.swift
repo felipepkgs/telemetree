@@ -64,6 +64,8 @@ final class SQLEditorViewController: NSViewController {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticTextCompletionEnabled = true
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.allowsUndo = true
         textView.delegate = self
         textView.textContainerInset = NSSize(width: 6, height: 6)

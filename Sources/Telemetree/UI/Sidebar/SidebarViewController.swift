@@ -77,6 +77,7 @@ final class SidebarViewController: NSViewController {
         rebuildSnippetsTree()
         outlineView.expandItem(connectionsHeader)
         outlineView.expandItem(queriesHeader)
+        outlineView.expandItem(snippetsHeader)
         applyTheme(appState.themeStore.current)
     }
 
@@ -352,6 +353,11 @@ final class SidebarViewController: NSViewController {
         case .sectionHeader, .queryFolder, .snippetFolder, .table, .queryDocument, .snippet, .placeholder:
             break
         }
+    }
+
+    /// ⌘⇧F target — jumps keyboard focus to the sidebar's search field.
+    func focusSearch() {
+        view.window?.makeFirstResponder(searchField)
     }
 
     // MARK: - Add menu

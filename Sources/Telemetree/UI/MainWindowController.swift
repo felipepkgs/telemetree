@@ -3,6 +3,9 @@ import AppKit
 @MainActor
 final class MainWindowController: NSWindowController {
     private let appState: AppState
+    private let sidebarVC: SidebarViewController
+    private var queryHistoryController: QueryHistoryWindowController?
+    private var commandPaletteController: CommandPaletteWindowController?
 
     init(appState: AppState) {
         self.appState = appState
@@ -16,11 +19,10 @@ final class MainWindowController: NSWindowController {
         window.minSize = NSSize(width: 900, height: 600)
         window.isRestorable = false
         window.center()
-        super.init(window: window)
 
         let splitViewController = NSSplitViewController()
-
         let sidebarVC = SidebarViewController(appState: appState)
+        self.sidebarVC = sidebarVC
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarVC)
         sidebarItem.minimumThickness = 200
         sidebarItem.maximumThickness = 340
@@ -31,6 +33,7 @@ final class MainWindowController: NSWindowController {
         splitViewController.addSplitViewItem(sidebarItem)
         splitViewController.addSplitViewItem(workspaceItem)
 
+        super.init(window: window)
         window.contentViewController = splitViewController
     }
 
@@ -52,12 +55,41 @@ final class MainWindowController: NSWindowController {
               let theme = Theme.all.first(where: { $0.id == themeID }) else { return }
         appState.themeStore.select(theme)
     }
+
+    @objc func focusGlobalSearch(_ sender: Any?) {
+        sidebarVC.focusSearch()
+    }
+
+    @objc func selectDocumentTab(_ sender: NSMenuItem) {
+        let index = sender.tag - 1
+        guard index >= 0, index < appState.openDocumentIDs.count else { return }
+        appState.activate(appState.openDocumentIDs[index])
+    }
+
+    @objc func showQueryHistory(_ sender: Any?) {
+        let controller = queryHistoryController ?? QueryHistoryWindowController(appState: appState)
+        queryHistoryController = controller
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func showCommandPalette(_ sender: Any?) {
+        let controller = commandPaletteController ?? CommandPaletteWindowController(appState: appState) { [weak self] in
+            self?.showQueryHistory(nil)
+        }
+        commandPaletteController = controller
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
 }
 
 extension MainWindowController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if let themeID = menuItem.representedObject as? String {
             menuItem.state = (appState.themeStore.current.id == themeID) ? .on : .off
+        }
+        if menuItem.action == #selector(selectDocumentTab(_:)) {
+            return menuItem.tag - 1 < appState.openDocumentIDs.count
         }
         return true
     }

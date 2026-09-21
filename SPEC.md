@@ -136,6 +136,43 @@ normal nested tree). Connections aren't filtered — no stated need for it.
   `information_schema` and cache per-connection, a reasonable follow-up
   but out of scope for "suggest keywords").
 
+## Milestone 4: history, command palette, keyboard shortcuts
+
+- **Query history**: `History/QueryHistoryStore` — append-only, capped at
+  500 entries, persisted like the other stores. `AppState.executeCurrentSQL`
+  records every attempt (SQL, connection name, timestamp, success/fail)
+  after it resolves; a query that never reaches execution (no connection
+  selected) isn't logged, since that's a configuration issue, not an
+  executed query. `UI/History/QueryHistoryWindowController` — searchable
+  table, double-click to reopen as a new query document
+  (`AppState.reopenHistoryEntry`), "Clear History" button. Opened via
+  File → Query History…
+- **Command palette** (⌘⇧P / File → Command Palette…):
+  `UI/CommandPalette/CommandPaletteWindowController`. Substring-filters
+  across query documents, snippets, connections, and a fixed action list
+  (New Query, New Snippet, Run Current Query, Query History, each Theme).
+  Arrow keys/Return work from the search field via
+  `NSSearchFieldDelegate.control(_:textView:doCommandBy:)` forwarding to
+  the results `NSTableView`. Deliberately excludes live table names — that
+  would need a schema-name cache this app doesn't build yet (each
+  connection's tables are only loaded lazily, per database, when the
+  sidebar asks for them); worth adding once such a cache exists.
+- **Keyboard shortcuts**: ⌘F opens the SQL editor's native find bar
+  (`NSTextView.usesFindBar`/`performTextFinderAction(_:)` — no custom find
+  UI needed). ⌘⇧F focuses the sidebar's existing search field
+  (`SidebarViewController.focusSearch()`) rather than building a second
+  search surface. ⌘1–9 switch open tabs via a Window menu (9 items,
+  tagged 1–9, `MainWindowController.selectDocumentTab(_:)`); disabled via
+  `NSMenuItemValidation` once the tag exceeds the open-tab count.
+- Both new window controllers (`QueryHistoryWindowController`,
+  `CommandPaletteWindowController`) are owned by `MainWindowController`
+  as stored properties — the retention bug from the M3 addendum above is
+  exactly this class of mistake, so both were built with that lesson
+  already applied.
+- Found while testing: the Snippets section never auto-expanded on
+  launch (only Connections/Queries did) — a one-line miss in
+  `viewDidLoad`, now fixed.
+
 ## Other follow-ups noted during development
 
 - **Dev signing**: `swift build` produces an ad-hoc-signed binary whose

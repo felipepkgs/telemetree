@@ -28,6 +28,10 @@ final class TelemetreeApp: NSObject, NSApplicationDelegate {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Query", action: #selector(MainWindowController.newQuery(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "Close Tab", action: #selector(MainWindowController.closeActiveTab(_:)), keyEquivalent: "w")
+        fileMenu.addItem(.separator())
+        let paletteItem = fileMenu.addItem(withTitle: "Command Palette…", action: #selector(MainWindowController.showCommandPalette(_:)), keyEquivalent: "p")
+        paletteItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(withTitle: "Query History…", action: #selector(MainWindowController.showQueryHistory(_:)), keyEquivalent: "")
         fileMenuItem.submenu = fileMenu
         mainMenu.addItem(fileMenuItem)
 
@@ -49,8 +53,22 @@ final class TelemetreeApp: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+        let findItem = editMenu.addItem(withTitle: "Find…", action: #selector(NSTextView.performTextFinderAction(_:)), keyEquivalent: "f")
+        findItem.tag = NSTextFinder.Action.showFindInterface.rawValue
+        let findGlobalItem = editMenu.addItem(withTitle: "Search Queries & Snippets", action: #selector(MainWindowController.focusGlobalSearch(_:)), keyEquivalent: "f")
+        findGlobalItem.keyEquivalentModifierMask = [.command, .shift]
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
+
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        for index in 1...9 {
+            let item = windowMenu.addItem(withTitle: "Select Tab \(index)", action: #selector(MainWindowController.selectDocumentTab(_:)), keyEquivalent: "\(index)")
+            item.tag = index
+        }
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
 
         return mainMenu
     }
