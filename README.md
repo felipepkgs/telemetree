@@ -1,31 +1,68 @@
 # Telemetree
 
-Native macOS MySQL client. SwiftUI + AppKit, Swift Package Manager.
+> Your queries are work, not scratch paper.
 
-## Running
+Telemetree is a native macOS MySQL client built around persistent, named
+query documents instead of disposable tabs — with a real snippet library,
+statement-aware execution, and a genuinely native AppKit interface,
+keyboard-first throughout.
 
-This machine only has the Command Line Tools installed, not Xcode.app. This
-SDK's SwiftUI implements `@State`/`@Observable` etc. via a macro plugin that
-ships inside Xcode.app, not CLT — so `swift build` fails on any file using
-`@State` with "plugin for module 'SwiftUIMacros' not found". This is an
-environment limitation, not a code issue (the non-UI code — `Database/` and
-`Connections/` — was verified to compile cleanly against MySQLNIO).
+## What it does
 
-To build and run:
+- **Query documents, not tabs.** Every query is a named, persistent
+  document — close the app and reopen it, and your workspace is exactly
+  how you left it.
+- **Snippet library.** Nested folders, search, insert-at-cursor. Keep the
+  queries you run every week somewhere better than a scratch file.
+- **Statement-aware execution.** Run (⌘Return) only ever fires the
+  statement under your cursor — or your selection — never the rest of the
+  buffer. Multi-statement documents are safe by default.
+- **Destructive SQL confirmation.** `DELETE` / `DROP` / `TRUNCATE`, and any
+  `UPDATE` without a `WHERE`, require Touch ID (or your password) before
+  they run.
+- **Command palette** (`⌘⇧P`) — jump to any query, snippet, connection, or
+  action without leaving the keyboard.
+- **Query history.** Every run is logged — searchable, reopenable as a new
+  document.
+- **Syntax highlighting, themed.** Four color schemes (Default, Dracula,
+  Monokai, Solarized Dark) and a choice of Geist Mono / SF Mono / Menlo at
+  10–18pt, all live in Preferences.
+- **SQL keyword autocomplete** — native AppKit completion, no third-party
+  dependency.
+- **Auto-paginated results.** Large tables page in 500 rows at a time with
+  a Load More button, instead of pulling an entire result set into memory.
+- **Vapor theme family** — Base, Gold, Silver, and Carbon Fiber, with a real
+  pulsing connection-status dot and a woven carbon-fiber texture — native
+  chrome, not a skin.
+- **Keychain-backed credentials.** Passwords never touch disk in
+  plaintext; no account, no cloud, nothing phones home.
 
-1. Install Xcode from the App Store (or `xcode-select -s /Applications/Xcode.app`
-   if already installed elsewhere).
-2. Open this folder's `Package.swift` in Xcode — it opens as an app project.
-3. Press Run. Xcode bundles the SwiftUI `App` into a runnable `.app` automatically.
+## Why I built this
 
-## Status: Milestone 1
+TablePlus-style disposable tabs don't match how queries actually get used —
+a query worth running once a week deserves to persist as a real document,
+not evaporate when a tab closes. Telemetree is built around that: named
+query documents and a snippet library as first-class citizens, not an
+afterthought bolted onto a tab strip.
 
-- Native window, sidebar, SQL editor, results grid.
-- Add/test/save MySQL connections (password in Keychain, profile metadata in
-  `~/Library/Application Support/Telemetree/connections.json`).
-- Browse databases → tables in the sidebar; clicking a table runs a `SELECT * LIMIT 100`.
-- Run SQL with the Run button or ⌘Return.
+## Install
 
-Not yet built: persistent query documents/tabs, snippets, history, command
-palette, syntax highlighting, execute-selection, transactions. See the spec
-for the full milestone list.
+```sh
+swift build
+swift run
+```
+
+Pure Swift Package Manager, no Xcode project required. Targets macOS 14+,
+MySQL only for now. A signed release + Homebrew cask are on the way — see
+`SPEC.md` for the packaging status.
+
+## Docs
+
+- [Spec](SPEC.md) — milestone roadmap and implementation addenda, updated
+  as the app grows
+
+## Credits
+
+Icons (`Sources/Telemetree/Resources/Icons/`) are by
+[Icons8](https://icons8.com), used under their free license. Editor and UI
+type is [Geist / Geist Mono](https://vercel.com/font).
