@@ -195,12 +195,49 @@ final class SQLEditorViewController: NSViewController {
     }
 
     @objc private func run() {
-        appState.executeCurrentSQL()
+        appState.executeCurrentSQL(currentExecutionTarget())
+    }
+
+    /// What Run/⌘Return actually sends: the real selection if there is
+    /// one, otherwise just the statement the caret is currently inside —
+    /// never the whole buffer. A document can hold more than one
+    /// statement, and blindly running everything risked firing an
+    /// unrelated (possibly destructive) statement sitting elsewhere in
+    /// the same document.
+    private func currentExecutionTarget() -> String {
+        let selection = textView.selectedRange()
+        if selection.length > 0 {
+            return (textView.string as NSString).substring(with: selection)
+        }
+        if let statement = SQLStatementLocator.statement(containing: selection.location, in: textView.string) {
+            return statement.text
+        }
+        return textView.string
     }
 
     private func applyHighlighting() {
         guard let textStorage = textView.textStorage else { return }
         syntaxHighlighter.highlight(textStorage)
+        updateStatementHighlight()
+    }
+
+    /// Shows which statement Run would send by tinting its background —
+    /// only when the caret has no active selection, since a real
+    /// selection already reads clearly via the system's own selection
+    /// color and already IS what Run would send.
+    private static let statementHighlightColor = NSColor.controlAccentColor.withAlphaComponent(0.12)
+
+    private func updateStatementHighlight() {
+        guard let textStorage = textView.textStorage else { return }
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        textStorage.removeAttribute(.backgroundColor, range: fullRange)
+
+        let selection = textView.selectedRange()
+        guard selection.length == 0,
+              let statement = SQLStatementLocator.statement(containing: selection.location, in: textView.string),
+              statement.range.length > 0,
+              NSMaxRange(statement.range) <= textStorage.length else { return }
+        textStorage.addAttribute(.backgroundColor, value: Self.statementHighlightColor, range: statement.range)
     }
 
     private func applyTheme(_ theme: Theme) {
@@ -213,6 +250,15 @@ final class SQLEditorViewController: NSViewController {
 extension SQLEditorViewController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         appState.updateActiveSQL(textView.string)
+        // isAutomaticTextCompletionEnabled alone doesn't trigger the
+        // completion popup — AppKit still expects an explicit complete(_:)
+        // call per keystroke; the delegate below returns [] (hiding the
+        // popup) when there's nothing worth suggesting.
+        textView.complete(nil)
+    }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        updateStatementHighlight()
     }
 
     func textView(

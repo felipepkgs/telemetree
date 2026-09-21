@@ -133,9 +133,13 @@ final class AppState: ObservableObject {
         queryStore.updateSQL(documentID, sql: sql)
     }
 
-    func executeCurrentSQL() {
+    /// `overrideSQL`, when given, is what actually runs instead of the
+    /// whole document — the SQL editor passes the statement under the
+    /// caret (or the real selection, if any) so Run never fires an
+    /// unrelated statement sitting elsewhere in a multi-statement buffer.
+    func executeCurrentSQL(_ overrideSQL: String? = nil) {
         guard let state = activeState else { return }
-        let sql = state.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sql = (overrideSQL ?? state.sql).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
         guard let profileID = state.connectionProfileID,
               let connection = connectionManager.connection(for: profileID) else {
