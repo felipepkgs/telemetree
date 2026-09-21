@@ -7,6 +7,8 @@ query documents instead of disposable tabs — with a real snippet library,
 statement-aware execution, and a genuinely native AppKit interface,
 keyboard-first throughout.
 
+**[felipepkgs.github.io/telemetree](https://felipepkgs.github.io/telemetree/)**
+
 ## What it does
 
 - **Query documents, not tabs.** Every query is a named, persistent
@@ -48,16 +50,25 @@ afterthought bolted onto a tab strip.
 ## Install
 
 ```sh
+brew tap felipepkgs/telemetree
+brew install --cask telemetree
+```
+
+Ad-hoc signed, not notarized — Gatekeeper will flag the first launch; the
+cask clears the quarantine flag automatically. Or build from source:
+
+```sh
 swift build
 swift run
 ```
 
 Pure Swift Package Manager, no Xcode project required. Targets macOS 14+,
-MySQL only for now. A signed release + Homebrew cask are on the way — see
-`SPEC.md` for the packaging status.
+MySQL only for now.
 
 ## Docs
 
+- [Site](https://felipepkgs.github.io/telemetree/) — features, themes,
+  screenshots, honest shipped-vs-not status
 - [Spec](SPEC.md) — milestone roadmap and implementation addenda, updated
   as the app grows
 
