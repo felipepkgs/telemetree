@@ -482,3 +482,37 @@ missed.
   and its `affectedRows` is threaded through when a query returns no rows
   (i.e. any DML). Verified via a clean build; not yet re-verified against
   a live INSERT/UPDATE/DELETE the way the earlier pagination fix was.
+
+## SQL editor: replaced AppKit's native completion entirely
+
+Live testing surfaced two related bugs in the keyword-autocomplete
+feature (added earlier in M5): Backspace couldn't correct a wrong
+suggestion, and completing against `SQLSyntaxHighlighter.keywords` forced
+a real table named `order` to `ORDER` mid-query — "order" is both a
+common table name and a SQL keyword (`ORDER BY`), and the completer had
+no notion of position (identifier expected vs. keyword expected).
+
+The Backspace bug was first patched narrowly (skip forcing
+`complete(nil)` on a deletion), and the case bug by making completions
+positional (`identifierPositionKeywords` — after `FROM`/`JOIN`/`INTO`/
+`UPDATE`/etc., suggest from a per-connection table-name cache instead of
+the keyword list). But testing then surfaced the real underlying issue:
+AppKit's `NSTextView.complete(_:)` auto-inserts (and re-cases) the sole
+match into the document as soon as typing narrows to one candidate, with
+no explicit accept step — there's no supported way to suppress just that
+part of it. That's what both bugs actually traced back to.
+
+Replaced `complete(_:)` outright with a small custom popup
+(`UI/SQLEditor/CompletionPopup.swift`) that never mutates the document on
+its own — only an explicit Tab (intercepted via
+`NSTextViewDelegate.textView(_:doCommandBy:)`) accepts a candidate, real
+case preserved for table names. Space, Return, and everything else just
+behave as if the popup weren't there, since they're not command selectors
+AppKit routes through `doCommandBy` at all once the native machinery is
+gone. This also made the deletion-guard workaround unnecessary — removed
+it along with the old `shouldChangeTextIn` override.
+
+Known gap, not fixed: the popup doesn't auto-dismiss on a stray caret
+move (arrow keys past it, or a mouse click elsewhere) — it only closes on
+Tab-accept, Escape, or the next text edit recomputing it away. Minor and
+not yet reported as an issue in practice.
