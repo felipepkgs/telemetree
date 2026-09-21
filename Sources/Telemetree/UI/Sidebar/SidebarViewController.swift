@@ -91,6 +91,8 @@ final class SidebarViewController: NSViewController {
         outlineView.headerView = nil
         outlineView.style = .sourceList
         outlineView.floatsGroupRows = false
+        outlineView.target = self
+        outlineView.doubleAction = #selector(outlineViewDoubleClicked)
 
         contextMenu.delegate = self
         outlineView.menu = contextMenu
@@ -518,6 +520,26 @@ final class SidebarViewController: NSViewController {
         appState.insertSnippetIntoActiveEditor(snippet.sql)
     }
 
+    @objc private func editSnippet(_ sender: NSMenuItem) {
+        guard let snippet = sender.representedObject as? Snippet else { return }
+        openSnippetEditor(snippet.id)
+    }
+
+    @objc private func outlineViewDoubleClicked() {
+        let row = outlineView.clickedRow
+        guard row >= 0, let node = outlineView.item(atRow: row) as? SidebarNode else { return }
+        if case .snippet(let snippet) = node.kind {
+            openSnippetEditor(snippet.id)
+        }
+    }
+
+    private func openSnippetEditor(_ snippetID: UUID) {
+        let controller = SnippetEditorWindowController(appState: appState, snippetID: snippetID)
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc private func duplicateSnippet(_ sender: NSMenuItem) {
         guard let snippet = sender.representedObject as? Snippet,
               appState.snippetStore.duplicate(snippet.id) != nil else { return }
@@ -620,6 +642,7 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(labelItem)
             menu.addItem(menuItem("Delete Folder", action: #selector(deleteQueryFolder(_:)), representedObject: folder))
         case .snippet(let snippet):
+            menu.addItem(menuItem("Edit…", action: #selector(editSnippet(_:)), representedObject: snippet))
             menu.addItem(menuItem("Insert into Editor", action: #selector(insertSnippet(_:)), representedObject: snippet))
             menu.addItem(.separator())
             menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))
