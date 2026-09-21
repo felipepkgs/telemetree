@@ -17,18 +17,16 @@ final class SQLEditorViewController: NSViewController {
     private var isHandlingTextChange = false
 
     // MARK: - Completion
-    private let completionPopup = CompletionPopup()
-    private var completionRange: NSRange?
+    private lazy var completionController = SQLCompletionController(textView: textView)
 
     // MARK: - Table-name completion cache
     //
     // Fetched once per connection (not per keystroke — completion has to
     // return synchronously, so this is kept warm ahead of time via the
-    // Combine subscriptions in bindWorkspace/bindActiveDocument) and used
-    // instead of the keyword list wherever an identifier, not a keyword,
-    // is expected next (see precedingWordExpectsIdentifier). Real names in
-    // their real case — no forcing "order" the table to "ORDER" just
-    // because "order" also happens to be a SQL keyword.
+    // Combine subscriptions in bindWorkspace/bindActiveDocument), fed to
+    // completionController via tableNamesProvider. Real names in their
+    // real case — no forcing "order" the table to "ORDER" just because
+    // "order" also happens to be a SQL keyword.
     private var cachedTableNames: [String] = []
     private var cachedTablesProfileID: UUID?
 
@@ -48,6 +46,7 @@ final class SQLEditorViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        completionController.tableNamesProvider = { [weak self] in self?.cachedTableNames ?? [] }
         bindWorkspace()
     }
 
@@ -194,7 +193,7 @@ final class SQLEditorViewController: NSViewController {
 
     private func bindActiveDocument() {
         documentCancellables.removeAll()
-        hideCompletions()
+        completionController.hide()
 
         guard let state = appState.activeState else {
             textView.string = ""
@@ -336,127 +335,14 @@ extension SQLEditorViewController: NSTextViewDelegate {
         defer { isHandlingTextChange = false }
 
         appState.updateActiveSQL(textView.string)
-        updateCompletions()
+        completionController.textDidChange()
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
         updateStatementHighlight()
     }
 
-    /// Intercepts Tab/arrows/Escape while the popup is visible so Tab is
-    /// the only key that ever accepts a suggestion — everything else
-    /// (including Space, which isn't a command selector at all and so
-    /// never reaches here) behaves exactly as if the popup weren't there.
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard completionPopup.isVisible else { return false }
-        switch commandSelector {
-        case #selector(NSResponder.insertTab(_:)):
-            acceptCompletion()
-            return true
-        case #selector(NSResponder.moveDown(_:)):
-            completionPopup.moveSelection(by: 1)
-            return true
-        case #selector(NSResponder.moveUp(_:)):
-            completionPopup.moveSelection(by: -1)
-            return true
-        case #selector(NSResponder.cancelOperation(_:)):
-            hideCompletions()
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Keywords immediately followed by an identifier (table/db/column
-    /// name), not another keyword — completing against the keyword list
-    /// there is actively wrong, not just unhelpful: a real table named
-    /// "order" (a keyword itself, like several common English words) would
-    /// get suggested as "ORDER" mid-query, a different name than the one
-    /// that exists. Table names from the actual schema (cachedTableNames)
-    /// are suggested there instead.
-    private static let identifierPositionKeywords: Set<String> = [
-        "from", "join", "into", "update", "table", "tables", "database",
-        "databases", "view", "index", "trigger", "procedure", "function"
-    ]
-
-    private func updateCompletions() {
-        guard textView.selectedRange().length == 0,
-              let range = currentWordRange(endingAt: textView.selectedRange().location),
-              range.length > 0 else {
-            hideCompletions()
-            return
-        }
-        let partial = (textView.string as NSString).substring(with: range).lowercased()
-        let candidates: [String]
-        if precedingWordExpectsIdentifier(before: range.location) {
-            candidates = cachedTableNames.filter { $0.lowercased().hasPrefix(partial) }.sorted()
-        } else {
-            candidates = SQLSyntaxHighlighter.keywords
-                .filter { $0.hasPrefix(partial) }
-                .sorted()
-                .map { $0.uppercased() }
-        }
-        // Nothing left to suggest once the only match is exactly what's
-        // already typed (e.g. right after accepting one).
-        guard !candidates.isEmpty, !(candidates.count == 1 && candidates[0].lowercased() == partial) else {
-            hideCompletions()
-            return
-        }
-        completionRange = range
-        showCompletions(candidates)
-    }
-
-    private func showCompletions(_ candidates: [String]) {
-        guard let range = completionRange, let window = view.window else { return }
-        let caretRange = NSRange(location: NSMaxRange(range), length: 0)
-        let screenRect = textView.firstRect(forCharacterRange: caretRange, actualRange: nil)
-        completionPopup.show(candidates: candidates, at: NSPoint(x: screenRect.minX, y: screenRect.minY), parent: window)
-    }
-
-    private func hideCompletions() {
-        completionRange = nil
-        completionPopup.hide()
-    }
-
-    private func acceptCompletion() {
-        guard let range = completionRange, let candidate = completionPopup.selectedCandidate else { return }
-        textView.insertText(candidate, replacementRange: range)
-        hideCompletions()
-    }
-
-    private func currentWordRange(endingAt location: Int) -> NSRange? {
-        let text = textView.string as NSString
-        guard location > 0, location <= text.length else { return nil }
-        var start = location
-        while start > 0 {
-            let char = text.substring(with: NSRange(location: start - 1, length: 1))
-            guard char.rangeOfCharacter(from: .alphanumerics.union(CharacterSet(charactersIn: "_"))) != nil else { break }
-            start -= 1
-        }
-        guard start < location else { return nil }
-        return NSRange(location: start, length: location - start)
-    }
-
-    private func precedingWordExpectsIdentifier(before location: Int) -> Bool {
-        let text = textView.string as NSString
-        guard location > 0 else { return false }
-        // A leading "." (as in `db.table`) always means an identifier
-        // comes next, regardless of what preceded that.
-        if location > 0, text.substring(with: NSRange(location: location - 1, length: 1)) == "." {
-            return true
-        }
-        var end = location
-        while end > 0, text.substring(with: NSRange(location: end - 1, length: 1)) == " " {
-            end -= 1
-        }
-        var start = end
-        while start > 0 {
-            let char = text.substring(with: NSRange(location: start - 1, length: 1))
-            guard char.rangeOfCharacter(from: .alphanumerics.union(CharacterSet(charactersIn: "_"))) != nil else { break }
-            start -= 1
-        }
-        guard start < end else { return false }
-        let word = text.substring(with: NSRange(location: start, length: end - start)).lowercased()
-        return Self.identifierPositionKeywords.contains(word)
+        completionController.doCommandBy(commandSelector)
     }
 }

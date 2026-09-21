@@ -547,3 +547,24 @@ not yet reported as an issue in practice.
   subtle radial highlight) instead of the flatter two-stop gradient of
   the first pass. Re-checked at real 16px/32px render size before
   shipping, same as the first icon.
+
+## Statement-highlight border reverted; completion extracted and reused
+
+- **Border dropped**: the green border added alongside the highlight fill
+  read as misleading rather than helpful — removed, back to fill only.
+  `updateStatementHighlight` also now trims the painted range to start at
+  the statement's actual first character (it previously started right
+  after the prior statement's `;`, which could include a gap of leading
+  whitespace/newlines before the real content).
+- **Completion logic extracted**: the Tab-only popup built for the main
+  SQL editor was never wired into the snippet editor
+  (`SnippetEditorWindowController`) — that window still had the *original*
+  `NSTextView.complete(_:)`-based implementation, with the exact same
+  forced-uppercase/no-backspace bugs, found live by testing the "create
+  snippet" page specifically. Rather than copy the fix a second time,
+  pulled the shared logic into `UI/SQLEditor/SQLCompletionController.swift`
+  and pointed both editors at it. The snippet editor leaves
+  `tableNamesProvider` at its default (empty) — snippets aren't tied to
+  one connection, so only keyword completion applies there; the
+  identifier-position check still suppresses keyword suggestions in that
+  case rather than falling back to something wrong.
