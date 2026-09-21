@@ -95,9 +95,18 @@ final class NewConnectionWindowController: NSWindowController {
             mainStack.topAnchor.constraint(equalTo: contentView.topAnchor),
             mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            grid.widthAnchor.constraint(equalTo: mainStack.widthAnchor)
+            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
+
+        // The window was given a fixed, arbitrary content size at creation
+        // (380x320) with the grid stretched to fill it — the grid's own
+        // labels+fields never actually needed that much width, so the
+        // extra space sat as a dead gap on the right, only the button row
+        // pulling all the way over via mainStack's trailing alignment
+        // (felipepkgs/telemetree#3, "decentered"). Sizing the window to
+        // the stack's own natural fitting size removes that gap outright
+        // instead of fighting NSGridView's column-stretch behavior.
+        window?.setContentSize(mainStack.fittingSize)
     }
 
     private func makeProfile() -> ConnectionProfile {
