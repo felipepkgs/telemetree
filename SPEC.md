@@ -637,3 +637,76 @@ not yet reported as an issue in practice.
   without being able to verify it live — the anchor approach sidesteps
   the ambiguity entirely, since by the time `selectionDidChange` runs,
   `textDidChange` has already updated the anchor either way.
+
+## UX nitpick batch: pagination redesign, exports, dialogs, qualified completion
+
+A round of small UX fixes and one larger feature, done together and
+verified against a real 10,000-row seeded table (`telemetree_seed_test`,
+in the `telemetree-mysql` Docker container used for local dev) before
+shipping:
+
+- **Numbered pagination replaces "Load More"**: page size dropped from
+  500 to 100 (`AppState.resultPageSize`). `OpenDocumentState` now tracks
+  `currentPage`/`totalRowCount` instead of `hasMorePages`/
+  `paginationOffset`; `AppState.goToPage(_:)` replaces
+  `loadMoreRows()` and *replaces* the grid's rows rather than appending
+  to them. Total count comes from a separate `SELECT COUNT(*) FROM
+  (base) AS telemetree_count` fired after the first page loads, so it
+  doesn't block showing results. `ResultsGridViewController` shows
+  "1-100 of 10,000" (a row range reads better than "Page 1 of 100",
+  which was tried first and replaced after testing against the real
+  seeded table) plus Prev/Next and individual page buttons, capped at
+  10 buttons before falling back to just Prev/Next.
+- **Qualified pre-FROM column completion**: `SQLCompletionController`
+  gained `allColumnsProvider` — when the statement under the caret has
+  no `FROM` yet, completion offers `table.column` across every table
+  this connection has cached columns for (warmed proactively in
+  `SQLEditorViewController.refreshTableNamesIfNeeded`, sequentially
+  — one `SHOW COLUMNS` at a time, since this is a single MySQL
+  connection, not a pool). Accepting one inserts just the column and
+  appends the matching `FROM \`table\`` to the end of the statement.
+  The FROM insertion happens *before* the field insertion, not after
+  with a manual caret-restore — its insertion point is always later in
+  the buffer than the field's, so inserting it first doesn't shift the
+  field's coordinates, and the field insert (done last) naturally
+  leaves the caret in the right place with nothing to race against.
+  This was tried the other way first (insert field, then append FROM,
+  then explicitly restore the caret) and reordered after the user
+  reported the restore didn't seem to work — not confirmed root-caused
+  against a live run (this environment's accessibility automation is
+  blocked, so the fix couldn't be verified interactively), but the
+  reordered version removes an entire class of insertText/
+  textDidChange timing risk regardless.
+- **Export CSV and JSON**: both next to Copy Results.
+  CSV is hand-rolled RFC 4180 quoting; JSON goes through
+  `JSONSerialization` rather than a hand-rolled serializer (correct
+  escaping for free, at the cost of object key order not being
+  preserved — acceptable since JSON object key order isn't semantically
+  meaningful anyway). Every value is a JSON string or `null`, since
+  `QueryValue` doesn't preserve a numeric/bool distinction at this
+  layer — same tradeoff CSV already had.
+- **Save Query As**: shown only while a document is still named
+  "Untitled Query" (`QueryStore.untitledQueryName`, extracted as a
+  named constant so the UI check and the default-name default can't
+  drift apart). Rebuilt as a plain custom `NSWindow` sheet instead of
+  an `NSAlert` accessory view — the accessory-view version rendered
+  broken (overflowing its own dialog bounds) once it grew past a single
+  text field to include a folder picker; `NSAlert.accessoryView` sizing
+  is a known-flaky combination once it's asked to host more than one
+  simple control.
+- **New Connection dialog padding fixed**: `NSStackView.edgeInsets` was
+  set but visibly not rendering — the fields sat flush against the
+  window edges. Switched to explicit constant insets on the constraints
+  pinning the stack to its container, which is guaranteed to render
+  regardless of whatever edge case made edgeInsets a no-op here.
+- **`FROM` now suggests every table immediately**, not just once a
+  prefix is typed — `SQLCompletionController.updateCompletions`
+  previously required a non-empty current word to show anything;
+  the identifier-position branch now also fires on an empty word
+  right after `FROM`/`JOIN`/etc.
+- **Play icon added to Run** (SF Symbol `play.fill`, no new asset).
+- **Font size preference now applies to the results grid and Query
+  History's SQL column** — both were hardcoded `FontLibrary.mono(11)`,
+  ignoring the Preferences font-size setting entirely; the results grid
+  was the one place in the app where changing that setting visibly did
+  nothing. Row height in the grid now scales with the chosen size too.

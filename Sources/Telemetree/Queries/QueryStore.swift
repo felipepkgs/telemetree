@@ -8,6 +8,8 @@ final class QueryStore: ObservableObject {
     @Published private(set) var documents: [QueryDocument] = []
     @Published private(set) var folders: [QueryFolder] = []
 
+    nonisolated static let untitledQueryName = "Untitled Query"
+
     private let storeURL: URL
     private var pendingSave: DispatchWorkItem?
 
@@ -24,7 +26,7 @@ final class QueryStore: ObservableObject {
     }
 
     @discardableResult
-    func createDocument(name: String = "Untitled Query", connectionProfileID: UUID? = nil, folderID: UUID? = nil) -> QueryDocument {
+    func createDocument(name: String = QueryStore.untitledQueryName, connectionProfileID: UUID? = nil, folderID: UUID? = nil) -> QueryDocument {
         let maxOrder = documents.filter { $0.folderID == folderID }.map(\.sortOrder).max() ?? -1
         let document = QueryDocument(name: name, connectionProfileID: connectionProfileID, folderID: folderID, sortOrder: maxOrder + 1)
         documents.append(document)

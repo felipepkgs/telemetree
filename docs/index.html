@@ -114,15 +114,15 @@
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="2.2" stroke="currentColor" stroke-width="1.4"/><path d="M9 2.5v2M9 13.5v2M15.5 9h-2M4.5 9h-2M13.4 4.6l-1.4 1.4M5.6 12.4l-1.4 1.4M13.4 13.4l-1.4-1.4M5.6 5.6L4.2 4.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         </div>
         <h3>Preferences</h3>
-        <p>App theme, syntax highlighting theme, and editor font/size — four highlighting palettes, three font choices, all applied live to every open document.</p>
+        <p>App theme, syntax highlighting theme, and editor font/size — four highlighting palettes, three font choices, applied live everywhere text renders, results grid included.</p>
       </div>
 
       <div class="card">
         <div class="card-icon">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2.5" y="3" width="13" height="12" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 7h13M6 3v12" stroke="currentColor" stroke-width="1.4"/></svg>
         </div>
-        <h3>Auto-paginated results</h3>
-        <p>A plain, un-LIMITed <code class="mono">SELECT</code> pages in 500 rows at a time with a Load More button, instead of pulling an entire result set into memory.</p>
+        <h3>Paginated results</h3>
+        <p>A plain, un-LIMITed <code class="mono">SELECT</code> pages in 100 rows at a time with numbered page navigation ("1-100 of 10,000"), instead of pulling an entire result set into memory.</p>
       </div>
 
       <div class="card">
@@ -245,14 +245,16 @@
           <li><strong>Connections</strong> — add, test, save MySQL connections; password in Keychain</li>
           <li><strong>Query documents &amp; folders</strong> — persistent, tabbed, autosaved</li>
           <li><strong>Snippet library</strong> — folders, create, edit, insert, hover-delete</li>
-          <li><strong>SQL syntax highlighting</strong>, plus a custom completion popup: keywords, real table names, and real column names (scoped to the tables referenced in the statement under the caret) from the connected schema, Tab-only accept</li>
+          <li><strong>SQL syntax highlighting</strong>, plus a custom completion popup: keywords; real table names after <code class="mono">FROM</code>/<code class="mono">JOIN</code>; real column names scoped to the statement's tables once a <code class="mono">FROM</code> exists; and, before one exists, qualified <code class="mono">table.column</code> suggestions across every known table — accepting one inserts the column and appends the matching <code class="mono">FROM</code> clause for you, cursor left exactly where you were typing. Tab-only accept.</li>
           <li><strong>Last-clicked database as default</strong> — clicking a database in the sidebar runs a real <code class="mono">USE</code>, so unqualified table names resolve without <code class="mono">db.table</code> qualification</li>
           <li><strong>Command palette</strong> (⌘⇧P) and sidebar search, sorted by most-used</li>
           <li><strong>Query history</strong> — searchable, capped, reopenable</li>
           <li><strong>Vapor theme family</strong> — base, Gold, Silver, Carbon Fiber</li>
           <li><strong>Destructive SQL guard</strong> — every DELETE/DROP/TRUNCATE/UPDATE requires Touch ID, no exceptions</li>
-          <li><strong>Preferences</strong> — theme, syntax highlighting, editor font/size</li>
-          <li><strong>Auto-paginated results</strong> — 500 rows at a time, Load More</li>
+          <li><strong>Preferences</strong> — theme, syntax highlighting, editor font/size (applies everywhere text is rendered, results grid included)</li>
+          <li><strong>Paginated results</strong> — 100 rows at a time with numbered page navigation ("1-100 of 10,000"), not an unbounded "Load More"</li>
+          <li><strong>Export results</strong> — CSV or JSON, alongside plain copy-to-clipboard</li>
+          <li><strong>Save query as…</strong> — name and file an unsaved query straight from the editor toolbar, with a folder picker if you have any</li>
           <li><strong>Accurate DML row counts</strong> — INSERT/UPDATE/DELETE show the real affected-row count, not always 0</li>
           <li><strong>Active-statement highlighting</strong> — the editor shows exactly which statement Run/⌘Return will send</li>
           <li><strong>Friendly error messages</strong> — common MySQL error codes translated to plain English, not raw server text</li>

@@ -154,7 +154,7 @@ final class AppState: ObservableObject {
     }
 
     /// Page size for auto-paginated SELECTs — see `executeCurrentSQL`.
-    static let resultPageSize = 500
+    static let resultPageSize = 100
 
     /// `overrideSQL`, when given, is what actually runs instead of the
     /// whole document — the SQL editor passes the statement under the
@@ -178,8 +178,8 @@ final class AppState: ObservableObject {
         let paginate = Self.isUnlimitedSelect(sql)
         let paginationBase = Self.stripTrailingSemicolon(sql)
         state.paginationBaseSQL = paginate ? paginationBase : nil
-        state.paginationOffset = 0
-        state.hasMorePages = false
+        state.currentPage = 0
+        state.totalRowCount = nil
         let runSQL = paginate ? "\(paginationBase) LIMIT \(Self.resultPageSize)" : sql
 
         Task {
@@ -195,8 +195,10 @@ final class AppState: ObservableObject {
             do {
                 let result = try await connection.execute(sql: runSQL)
                 state.queryResult = result
-                state.hasMorePages = paginate && result.rows.count == Self.resultPageSize
                 historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: true, errorMessage: nil)
+                if paginate {
+                    fetchTotalRowCount(baseSQL: paginationBase, connection: connection, state: state)
+                }
             } catch {
                 state.errorMessage = error.localizedDescription
                 if case DatabaseError.connectionLost = error {
@@ -208,27 +210,36 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Fetches the next page for the currently displayed result, appending
-    /// its rows to what's already shown.
-    func loadMoreRows() {
+    /// Runs separately from the page fetch, and doesn't block showing the
+    /// first page — COUNT(*) over a big table can be slow, so the page
+    /// controls just show a total/page count once this resolves instead
+    /// of making the user wait for it up front.
+    private func fetchTotalRowCount(baseSQL: String, connection: any DatabaseConnection, state: OpenDocumentState) {
+        Task {
+            guard let result = try? await connection.execute(sql: "SELECT COUNT(*) FROM (\(baseSQL)) AS telemetree_count"),
+                  let raw = result.rows.first?.first?.displayString,
+                  let count = Int(raw) else { return }
+            state.totalRowCount = count
+        }
+    }
+
+    /// Fetches and displays one page of the current paginated result —
+    /// replaces the grid's rows rather than appending to them, since
+    /// paging (not "load more") is now the model.
+    func goToPage(_ page: Int) {
         guard let state = activeState,
               let baseSQL = state.paginationBaseSQL,
-              state.hasMorePages, !state.isExecuting,
+              page >= 0, !state.isExecuting,
               let profileID = state.connectionProfileID,
               let connection = connectionManager.connection(for: profileID) else { return }
-        let nextOffset = state.paginationOffset + Self.resultPageSize
+        let offset = page * Self.resultPageSize
 
         Task {
             state.isExecuting = true
             do {
-                let page = try await connection.execute(sql: "\(baseSQL) LIMIT \(Self.resultPageSize) OFFSET \(nextOffset)")
-                state.queryResult = QueryResult(
-                    columns: state.queryResult.columns,
-                    rows: state.queryResult.rows + page.rows,
-                    affectedRows: state.queryResult.affectedRows
-                )
-                state.paginationOffset = nextOffset
-                state.hasMorePages = page.rows.count == Self.resultPageSize
+                let result = try await connection.execute(sql: "\(baseSQL) LIMIT \(Self.resultPageSize) OFFSET \(offset)")
+                state.queryResult = result
+                state.currentPage = page
             } catch {
                 state.errorMessage = error.localizedDescription
             }

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 @MainActor
 final class ResultsGridViewController: NSViewController {
@@ -12,9 +13,33 @@ final class ResultsGridViewController: NSViewController {
     private let scrollView = NSScrollView()
     private let statusLabel = NSTextField(labelWithString: "")
     private let copyButton = NSButton(title: "Copy Results", target: nil, action: nil)
-    private let loadMoreButton = NSButton(title: "Load More", target: nil, action: nil)
+    private let exportCSVButton = NSButton(title: "Export CSV", target: nil, action: nil)
+    private let exportJSONButton = NSButton(title: "Export JSON", target: nil, action: nil)
+    private let pageButtonsStack = NSStackView()
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private let statusBar = NSView()
+
+    /// Local mirrors of the active document's pagination state — kept in
+    /// sync via the Combine subscriptions in bindActiveDocument, read
+    /// together by updatePagingUI() since page buttons depend on all of
+    /// them at once (current page, total, and whether a fetch is in
+    /// flight) and Combine only hands you one changed value at a time.
+    private var isPaginated = false
+    private var currentPage = 0
+    private var totalRowCount: Int?
+    private var isExecuting = false
+
+    /// Above this many pages, individual page-number buttons give way to
+    /// a plain "Page X of Y" readout — otherwise a huge table's page bar
+    /// would just keep growing forever.
+    private static let maxPageButtons = 10
+
+    /// Cell font for the grid — previously a hardcoded FontLibrary.mono(11)
+    /// that ignored the Preferences font-size setting entirely, the one
+    /// place in the app where changing it had no visible effect. Now
+    /// tracks appState.fontPreferences the same way the SQL/snippet
+    /// editors already did.
+    private var dataFont: NSFont = FontLibrary.mono(11)
 
     init(appState: AppState) {
         self.appState = appState
@@ -59,11 +84,20 @@ final class ResultsGridViewController: NSViewController {
         copyButton.bezelStyle = .rounded
         copyButton.translatesAutoresizingMaskIntoConstraints = false
 
-        loadMoreButton.target = self
-        loadMoreButton.action = #selector(loadMore)
-        loadMoreButton.bezelStyle = .rounded
-        loadMoreButton.isHidden = true
-        loadMoreButton.translatesAutoresizingMaskIntoConstraints = false
+        exportCSVButton.target = self
+        exportCSVButton.action = #selector(exportCSV)
+        exportCSVButton.bezelStyle = .rounded
+        exportCSVButton.translatesAutoresizingMaskIntoConstraints = false
+
+        exportJSONButton.target = self
+        exportJSONButton.action = #selector(exportJSON)
+        exportJSONButton.bezelStyle = .rounded
+        exportJSONButton.translatesAutoresizingMaskIntoConstraints = false
+
+        pageButtonsStack.orientation = .horizontal
+        pageButtonsStack.spacing = 4
+        pageButtonsStack.isHidden = true
+        pageButtonsStack.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = FontLibrary.sans(11)
@@ -78,7 +112,9 @@ final class ResultsGridViewController: NSViewController {
         statusBar.wantsLayer = true
         statusBar.addSubview(statusLabel)
         statusBar.addSubview(copyButton)
-        statusBar.addSubview(loadMoreButton)
+        statusBar.addSubview(exportCSVButton)
+        statusBar.addSubview(exportJSONButton)
+        statusBar.addSubview(pageButtonsStack)
 
         let divider = NSBox()
         divider.boxType = .separator
@@ -101,8 +137,14 @@ final class ResultsGridViewController: NSViewController {
             copyButton.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -10),
             copyButton.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
 
-            loadMoreButton.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -8),
-            loadMoreButton.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            exportCSVButton.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -8),
+            exportCSVButton.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+
+            exportJSONButton.trailingAnchor.constraint(equalTo: exportCSVButton.leadingAnchor, constant: -8),
+            exportJSONButton.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+
+            pageButtonsStack.trailingAnchor.constraint(equalTo: exportJSONButton.leadingAnchor, constant: -8),
+            pageButtonsStack.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
 
             divider.topAnchor.constraint(equalTo: statusBar.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -130,8 +172,20 @@ final class ResultsGridViewController: NSViewController {
             .sink { [weak self] theme in self?.applyTheme(theme) }
             .store(in: &appCancellables)
 
+        Publishers.CombineLatest(appState.fontPreferences.$choice, appState.fontPreferences.$size)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in self?.applyFont() }
+            .store(in: &appCancellables)
+
         applyTheme(appState.themeStore.current)
+        applyFont()
         bindActiveDocument()
+    }
+
+    private func applyFont() {
+        dataFont = appState.fontPreferences.font
+        tableView.rowHeight = max(20, dataFont.pointSize + 8)
+        tableView.reloadData()
     }
 
     private func applyTheme(_ theme: Theme) {
@@ -158,11 +212,35 @@ final class ResultsGridViewController: NSViewController {
             .sink { [weak self] error in self?.applyError(error) }
             .store(in: &documentCancellables)
 
-        Publishers.CombineLatest(state.$hasMorePages, state.$isExecuting)
+        state.$paginationBaseSQL
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] hasMore, executing in
-                self?.loadMoreButton.isHidden = !hasMore
-                self?.loadMoreButton.isEnabled = !executing
+            .sink { [weak self] base in
+                self?.isPaginated = base != nil
+                self?.updatePagingUI()
+            }
+            .store(in: &documentCancellables)
+
+        state.$currentPage
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] page in
+                self?.currentPage = page
+                self?.updatePagingUI()
+            }
+            .store(in: &documentCancellables)
+
+        state.$totalRowCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] total in
+                self?.totalRowCount = total
+                self?.updatePagingUI()
+            }
+            .store(in: &documentCancellables)
+
+        state.$isExecuting
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] executing in
+                self?.isExecuting = executing
+                self?.updatePagingUI()
             }
             .store(in: &documentCancellables)
     }
@@ -172,6 +250,8 @@ final class ResultsGridViewController: NSViewController {
         rebuildColumns()
         tableView.reloadData()
         copyButton.isEnabled = !result.rows.isEmpty
+        exportCSVButton.isEnabled = !result.rows.isEmpty
+        exportJSONButton.isEnabled = !result.rows.isEmpty
 
         if result.columns.isEmpty {
             messageLabel.stringValue = result.affectedRows.map { "\($0) row(s) affected" } ?? "No results"
@@ -182,7 +262,7 @@ final class ResultsGridViewController: NSViewController {
             messageLabel.isHidden = true
             scrollView.isHidden = false
         }
-        statusLabel.stringValue = "\(result.rows.count) row(s)"
+        updatePagingUI()
     }
 
     private func applyError(_ error: String?) {
@@ -192,6 +272,64 @@ final class ResultsGridViewController: NSViewController {
         messageLabel.isHidden = false
         scrollView.isHidden = true
         statusLabel.stringValue = ""
+    }
+
+    /// Single source of truth for both the status label and the page
+    /// button row — both depend on the same combination of state
+    /// (row count, pagination on/off, current page, total, in-flight),
+    /// so this is called from every publisher that touches any of them
+    /// rather than splitting the logic across each individual sink.
+    private func updatePagingUI() {
+        guard isPaginated else {
+            statusLabel.stringValue = "\(result.rows.count) row(s)"
+            pageButtonsStack.isHidden = true
+            return
+        }
+        guard let total = totalRowCount else {
+            statusLabel.stringValue = "\(result.rows.count) row(s) — counting total…"
+            pageButtonsStack.isHidden = true
+            return
+        }
+        // "1-100 of 10000" reads better than "Page 1 of 100" — tells you
+        // exactly which rows you're looking at, not just a page ordinal.
+        let startRow = currentPage * AppState.resultPageSize + 1
+        let endRow = result.rows.isEmpty ? startRow : startRow + result.rows.count - 1
+        statusLabel.stringValue = "\(startRow)-\(endRow) of \(total)"
+        let totalPages = max(1, Int(ceil(Double(total) / Double(AppState.resultPageSize))))
+        pageButtonsStack.isHidden = totalPages <= 1
+        rebuildPageButtons(totalPages: totalPages)
+    }
+
+    private func rebuildPageButtons(totalPages: Int) {
+        pageButtonsStack.arrangedSubviews.forEach {
+            pageButtonsStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        guard totalPages > 1 else { return }
+
+        let prev = NSButton(title: "‹", target: self, action: #selector(goToPrevPage))
+        prev.bezelStyle = .rounded
+        prev.isEnabled = currentPage > 0 && !isExecuting
+        pageButtonsStack.addArrangedSubview(prev)
+
+        if totalPages <= Self.maxPageButtons {
+            for page in 0..<totalPages {
+                let button = NSButton(title: "\(page + 1)", target: self, action: #selector(goToPageButtonTapped(_:)))
+                button.tag = page
+                button.bezelStyle = .rounded
+                button.contentTintColor = page == currentPage ? .controlAccentColor : nil
+                button.isEnabled = !isExecuting
+                pageButtonsStack.addArrangedSubview(button)
+            }
+        }
+        // Above maxPageButtons, just Prev/Next — statusLabel's "1-100 of
+        // 10000" already says exactly where you are, a second "Page X of
+        // Y" readout here would just be a worse, redundant restatement.
+
+        let next = NSButton(title: "›", target: self, action: #selector(goToNextPage))
+        next.bezelStyle = .rounded
+        next.isEnabled = currentPage < totalPages - 1 && !isExecuting
+        pageButtonsStack.addArrangedSubview(next)
     }
 
     private func rebuildColumns() {
@@ -206,14 +344,72 @@ final class ResultsGridViewController: NSViewController {
         }
     }
 
-    @objc private func loadMore() {
-        appState.loadMoreRows()
+    @objc private func goToPageButtonTapped(_ sender: NSButton) {
+        appState.goToPage(sender.tag)
+    }
+
+    @objc private func goToPrevPage() {
+        appState.goToPage(max(0, currentPage - 1))
+    }
+
+    @objc private func goToNextPage() {
+        appState.goToPage(currentPage + 1)
     }
 
     @objc private func copyAll() {
         var lines = [result.columns.joined(separator: "\t")]
         lines += result.rows.map(rowText)
         copyToPasteboard(lines.joined(separator: "\n"))
+    }
+
+    @objc private func exportCSV() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "results.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard let window = view.window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            try? self.csvText().write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func csvText() -> String {
+        var lines = [result.columns.map(csvField).joined(separator: ",")]
+        lines += result.rows.map { row in row.map { csvField($0.displayString) }.joined(separator: ",") }
+        return lines.joined(separator: "\r\n")
+    }
+
+    @objc private func exportJSON() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "results.json"
+        panel.allowedContentTypes = [.json]
+        guard let window = view.window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            try? self.jsonData().write(to: url)
+        }
+    }
+
+    /// Every value comes through as QueryValue (.text or .null) with no
+    /// numeric/bool distinction preserved at this layer — same tradeoff
+    /// CSV export makes — so every non-null value is a JSON string, not a
+    /// number, even for numeric columns.
+    private func jsonData() -> Data {
+        let objects: [[String: Any]] = result.rows.map { row in
+            var object: [String: Any] = [:]
+            for (index, column) in result.columns.enumerated() where index < row.count {
+                object[column] = row[index].isNull ? NSNull() : row[index].displayString
+            }
+            return object
+        }
+        return (try? JSONSerialization.data(withJSONObject: objects, options: [.prettyPrinted])) ?? Data("[]".utf8)
+    }
+
+    /// RFC 4180: quote a field only if it needs it (contains the
+    /// delimiter, a quote, or a newline), doubling any embedded quotes.
+    private func csvField(_ value: String) -> String {
+        guard value.contains(",") || value.contains("\"") || value.contains("\n") else { return value }
+        return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
     @objc private func copySelectedCell() {
@@ -279,7 +475,6 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
             cell = NSTableCellView()
             cell.identifier = identifier
             textField = NSTextField(labelWithString: "")
-            textField.font = FontLibrary.mono(11)
             textField.lineBreakMode = .byTruncatingTail
             textField.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(textField)
@@ -291,6 +486,10 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
             ])
         }
 
+        // Set on every call, not just at creation — a reused cell would
+        // otherwise keep whatever font it was first built with even after
+        // the size preference changes.
+        textField.font = dataFont
         textField.stringValue = value.displayString
         textField.textColor = value.isNull ? .tertiaryLabelColor : .labelColor
         cell.toolTip = value.displayString

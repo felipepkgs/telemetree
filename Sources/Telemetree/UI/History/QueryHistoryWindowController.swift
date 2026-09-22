@@ -117,6 +117,11 @@ final class QueryHistoryWindowController: NSWindowController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.refilter() }
             .store(in: &cancellables)
+
+        Publishers.CombineLatest(appState.fontPreferences.$choice, appState.fontPreferences.$size)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in self?.tableView.reloadData() }
+            .store(in: &cancellables)
     }
 
     private func refilter() {
@@ -186,7 +191,7 @@ extension QueryHistoryWindowController: NSTableViewDataSource, NSTableViewDelega
             textField.stringValue = entry.succeeded ? "✓" : "✕"
             textField.textColor = entry.succeeded ? .systemGreen : .systemRed
         case "sql":
-            textField.font = FontLibrary.mono(11)
+            textField.font = appState.fontPreferences.font
             textField.stringValue = entry.sql.replacingOccurrences(of: "\n", with: " ")
             textField.textColor = .labelColor
         case "connection":

@@ -87,15 +87,20 @@ final class NewConnectionWindowController: NSWindowController {
         mainStack.orientation = .vertical
         mainStack.spacing = 16
         mainStack.alignment = .trailing
-        mainStack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
+        // Explicit constant insets on the pinning constraints, not
+        // NSStackView.edgeInsets — edgeInsets read as a no-op here in
+        // practice (fields sat flush against the window edges with zero
+        // visible padding), so padding is applied the way that's actually
+        // guaranteed to render.
+        let padding: CGFloat = 20
         contentView.addSubview(mainStack)
         NSLayoutConstraint.activate([
-            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor),
-            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: padding),
+            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: padding),
+            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -padding),
+            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -padding)
         ])
 
         // The window was given a fixed, arbitrary content size at creation
@@ -104,9 +109,11 @@ final class NewConnectionWindowController: NSWindowController {
         // extra space sat as a dead gap on the right, only the button row
         // pulling all the way over via mainStack's trailing alignment
         // (felipepkgs/telemetree#3, "decentered"). Sizing the window to
-        // the stack's own natural fitting size removes that gap outright
-        // instead of fighting NSGridView's column-stretch behavior.
-        window?.setContentSize(mainStack.fittingSize)
+        // the stack's own natural fitting size (plus the padding above)
+        // removes that gap outright instead of fighting NSGridView's
+        // column-stretch behavior.
+        let fitting = mainStack.fittingSize
+        window?.setContentSize(NSSize(width: fitting.width + padding * 2, height: fitting.height + padding * 2))
     }
 
     private func makeProfile() -> ConnectionProfile {

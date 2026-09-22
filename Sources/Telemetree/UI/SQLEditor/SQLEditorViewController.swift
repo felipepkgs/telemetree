@@ -11,6 +11,7 @@ final class SQLEditorViewController: NSViewController {
     private let scrollView = NSScrollView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let runButton = NSButton(title: "Run", target: nil, action: nil)
+    private let saveAsButton = NSButton(title: "Save As…", target: nil, action: nil)
     private let progressIndicator = NSProgressIndicator()
     private let syntaxHighlighter = SQLSyntaxHighlighter()
     private let toolbar = NSView()
@@ -58,16 +59,24 @@ final class SQLEditorViewController: NSViewController {
         setupUI()
         completionController.tableNamesProvider = { [weak self] in self?.cachedTableNames ?? [] }
         completionController.columnNamesProvider = { [weak self] tables in self?.columnNames(for: tables) ?? [] }
+        completionController.allColumnsProvider = { [weak self] in self?.allCachedColumns() ?? [] }
         bindWorkspace()
     }
 
     private func setupUI() {
         runButton.bezelStyle = .rounded
+        runButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+        runButton.imagePosition = .imageLeading
         runButton.target = self
         runButton.action = #selector(run)
         runButton.keyEquivalent = "\r"
         runButton.keyEquivalentModifierMask = [.command]
         runButton.translatesAutoresizingMaskIntoConstraints = false
+
+        saveAsButton.bezelStyle = .rounded
+        saveAsButton.target = self
+        saveAsButton.action = #selector(saveAs)
+        saveAsButton.translatesAutoresizingMaskIntoConstraints = false
 
         progressIndicator.style = .spinning
         progressIndicator.controlSize = .small
@@ -81,6 +90,7 @@ final class SQLEditorViewController: NSViewController {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         toolbar.wantsLayer = true
         toolbar.addSubview(titleLabel)
+        toolbar.addSubview(saveAsButton)
         toolbar.addSubview(progressIndicator)
         toolbar.addSubview(runButton)
 
@@ -136,6 +146,9 @@ final class SQLEditorViewController: NSViewController {
 
             progressIndicator.trailingAnchor.constraint(equalTo: runButton.leadingAnchor, constant: -8),
             progressIndicator.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+
+            saveAsButton.trailingAnchor.constraint(equalTo: progressIndicator.leadingAnchor, constant: -8),
+            saveAsButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
 
             divider.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -254,11 +267,16 @@ final class SQLEditorViewController: NSViewController {
         guard let document = appState.activeDocument, let state = appState.activeState else {
             titleLabel.stringValue = "No query open"
             runButton.isEnabled = false
+            saveAsButton.isHidden = true
             return
         }
         let connectionName = appState.selectedProfile?.name
         titleLabel.stringValue = connectionName.map { "\(document.name) — \($0)" } ?? document.name
         runButton.isEnabled = !state.isExecuting
+        // Only offer this for a query that's never been given a real
+        // name — once it has one, this is just a rename, which the
+        // sidebar's own double-click-to-rename already covers.
+        saveAsButton.isHidden = document.name != QueryStore.untitledQueryName
     }
 
     private func refreshTableNamesIfNeeded() {
@@ -278,6 +296,21 @@ final class SQLEditorViewController: NSViewController {
             guard appState.selectedProfile?.id == profile.id,
                   (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
             cachedTableNames = tables
+            // Warms the pre-FROM qualified-column suggestions (see
+            // allCachedColumns) ahead of time rather than only after the
+            // user has already referenced a table once. Deliberately
+            // sequential (one SHOW COLUMNS at a time, awaited in this
+            // same loop) rather than firing them all concurrently — this
+            // is a single MySQL connection, not a pool, and the wire
+            // protocol expects one request in flight at a time.
+            for table in tables {
+                let key = table.lowercased()
+                guard cachedColumnsByTable[key] == nil else { continue }
+                let columns = (try? await connection.listColumns(table: table, inDatabase: database)) ?? []
+                guard appState.selectedProfile?.id == profile.id,
+                      (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
+                cachedColumnsByTable[key] = columns
+            }
         }
     }
 
@@ -297,6 +330,18 @@ final class SQLEditorViewController: NSViewController {
             }
         }
         return results
+    }
+
+    /// Flattens whatever's cached so far into (real-case table, column)
+    /// pairs, for the pre-FROM qualified-suggestion path. Best-effort —
+    /// this only knows about tables something has already asked about
+    /// (a prior completion, or the sidebar expanding that database), not
+    /// the whole schema; nothing eagerly fetches every table up front.
+    private func allCachedColumns() -> [(table: String, column: String)] {
+        cachedColumnsByTable.flatMap { lowerTable, columns in
+            let realName = cachedTableNames.first { $0.lowercased() == lowerTable } ?? lowerTable
+            return columns.map { (realName, $0) }
+        }
     }
 
     private func fetchColumnsIfNeeded(table: String) {
@@ -321,6 +366,110 @@ final class SQLEditorViewController: NSViewController {
 
     @objc private func run() {
         appState.executeCurrentSQL(currentExecutionTarget())
+    }
+
+    /// Kept alive for the duration of the sheet — NSWindowController
+    /// itself doesn't retain its window against a nil'd-out reference,
+    /// and the sheet would otherwise vanish as soon as this method
+    /// returns.
+    private var saveAsWindowController: NSWindowController?
+
+    @objc private func saveAs() {
+        guard let documentID = appState.activeDocumentID, let parentWindow = view.window else { return }
+
+        let nameField = NSTextField(string: "")
+        nameField.placeholderString = "Query name"
+        nameField.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = NSTextField(labelWithString: "Save Query As")
+        titleLabel.font = FontLibrary.sans(13, weight: .bold)
+
+        let nameLabel = NSTextField(labelWithString: "Name")
+        nameLabel.font = FontLibrary.sans(11)
+        nameLabel.textColor = .secondaryLabelColor
+
+        let folders = appState.queryStore.folders.sorted { $0.name < $1.name }
+        var folderPopup: NSPopUpButton?
+        var contentViews: [NSView] = [titleLabel, nameLabel, nameField]
+        if !folders.isEmpty {
+            // More than one place to save it — ask which, rather than
+            // silently always picking root.
+            let folderLabel = NSTextField(labelWithString: "Folder")
+            folderLabel.font = FontLibrary.sans(11)
+            folderLabel.textColor = .secondaryLabelColor
+
+            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            popup.addItem(withTitle: "Root")
+            for folder in folders {
+                popup.addItem(withTitle: folder.name)
+                popup.lastItem?.representedObject = folder.id
+            }
+            popup.translatesAutoresizingMaskIntoConstraints = false
+            folderPopup = popup
+            contentViews += [folderLabel, popup]
+        }
+
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancelSaveAs))
+        let saveButton = NSButton(title: "Save", target: self, action: #selector(confirmSaveAs))
+        saveButton.keyEquivalent = "\r"
+        saveButton.bezelStyle = .rounded
+        cancelButton.bezelStyle = .rounded
+        let buttonRow = NSStackView(views: [cancelButton, saveButton])
+        buttonRow.orientation = .horizontal
+        buttonRow.spacing = 8
+
+        let mainStack = NSStackView(views: contentViews + [buttonRow])
+        mainStack.orientation = .vertical
+        mainStack.alignment = .leading
+        mainStack.spacing = 6
+        mainStack.setCustomSpacing(16, after: titleLabel)
+        mainStack.setCustomSpacing(16, after: contentViews.last!)
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonRow.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor).isActive = true
+        nameField.widthAnchor.constraint(equalToConstant: 260).isActive = true
+        folderPopup?.widthAnchor.constraint(equalToConstant: 260).isActive = true
+
+        let padding: CGFloat = 20
+        let sheetWindow = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        sheetWindow.contentView?.addSubview(mainStack)
+        NSLayoutConstraint.activate([
+            mainStack.topAnchor.constraint(equalTo: sheetWindow.contentView!.topAnchor, constant: padding),
+            mainStack.leadingAnchor.constraint(equalTo: sheetWindow.contentView!.leadingAnchor, constant: padding),
+            mainStack.trailingAnchor.constraint(equalTo: sheetWindow.contentView!.trailingAnchor, constant: -padding),
+            mainStack.bottomAnchor.constraint(equalTo: sheetWindow.contentView!.bottomAnchor, constant: -padding)
+        ])
+        let fitting = mainStack.fittingSize
+        sheetWindow.setContentSize(NSSize(width: fitting.width + padding * 2, height: fitting.height + padding * 2))
+        sheetWindow.initialFirstResponder = nameField
+
+        let controller = NSWindowController(window: sheetWindow)
+        saveAsWindowController = controller
+        pendingSaveAs = (documentID: documentID, nameField: nameField, folderPopup: folderPopup)
+        parentWindow.beginSheet(sheetWindow)
+    }
+
+    private var pendingSaveAs: (documentID: UUID, nameField: NSTextField, folderPopup: NSPopUpButton?)?
+
+    @objc private func confirmSaveAs() {
+        guard let pending = pendingSaveAs, let sheetWindow = saveAsWindowController?.window else { return }
+        let name = pending.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty {
+            appState.queryStore.rename(pending.documentID, to: name)
+            if let folderID = pending.folderPopup?.selectedItem?.representedObject as? UUID {
+                appState.queryStore.move(pending.documentID, toFolder: folderID)
+            }
+            updateHeader()
+        }
+        sheetWindow.sheetParent?.endSheet(sheetWindow)
+        saveAsWindowController = nil
+        pendingSaveAs = nil
+    }
+
+    @objc private func cancelSaveAs() {
+        guard let sheetWindow = saveAsWindowController?.window else { return }
+        sheetWindow.sheetParent?.endSheet(sheetWindow)
+        saveAsWindowController = nil
+        pendingSaveAs = nil
     }
 
     /// What Run/⌘Return actually sends: the real selection if there is

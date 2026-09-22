@@ -13,11 +13,14 @@ final class OpenDocumentState: ObservableObject {
     @Published var isExecuting = false
     @Published var errorMessage: String?
 
-    /// Set only for a plain, un-LIMITed SELECT — lets "Load More" fetch the
-    /// next page of the same statement instead of the whole result set.
-    var paginationBaseSQL: String?
-    var paginationOffset = 0
-    @Published var hasMorePages = false
+    /// Set only for a plain, un-LIMITed SELECT — lets the results grid page
+    /// through the same statement (LIMIT/OFFSET) instead of pulling the
+    /// whole result set in one shot.
+    @Published var paginationBaseSQL: String?
+    @Published var currentPage = 0
+    /// nil while the background COUNT(*) is still in flight (or the
+    /// current result isn't paginated at all).
+    @Published var totalRowCount: Int?
 
     init(document: QueryDocument) {
         self.documentID = document.id
