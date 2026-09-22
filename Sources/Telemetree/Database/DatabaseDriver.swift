@@ -56,6 +56,7 @@ protocol DatabaseConnection: AnyObject {
     func execute(sql: String) async throws -> QueryResult
     func listDatabases() async throws -> [String]
     func listTables(inDatabase database: String) async throws -> [DatabaseTable]
+    func listColumns(table: String, inDatabase database: String) async throws -> [String]
     func close() async
 }
 

@@ -81,9 +81,9 @@ never reused across themes): **Vapor** (base/default), **Meniscus**
 (glassier Vapor), **Ulm** (Rams/Braun flat matte), **Instrument** (quiet
 systematic light mode), **Unibody** (brushed-aluminum hardware look),
 plus three Vapor material variants: **Gold**, **Silver**, **Carbon
-Fiber**. **Decision: only the Vapor family ships in Telemetree.**
-Meniscus/Ulm/Instrument/Unibody are explicitly out of scope, not just
-deferred — don't build them without a fresh ask.
+Fiber**. **Decision, final: only the Vapor family ships in Telemetree.**
+Meniscus/Ulm/Instrument/Unibody are discarded, not deferred — not a
+roadmap item, don't build them without a fresh ask.
 
 ### Implemented: the Vapor family (base + Gold/Silver/Carbon)
 
@@ -593,3 +593,47 @@ not yet reported as an issue in practice.
   issue asked for Icons8 kbd glyphs specifically; used plain muted text
   instead to avoid pulling in new icon assets for two key names — a
   reasonable-scope call, not a hard blocker if it turns out to matter.
+
+## Other themes discarded for good, column-name autocomplete, two gap fixes
+
+- **Other theme families discarded, not deferred**: tightened the
+  Meniscus/Ulm/Instrument/Unibody language in `Theme.swift`, SPEC.md, and
+  the docs site — was "explicitly out of scope, not deferred," now just
+  states the decision as final and drops it from the public "not built
+  yet" list entirely (it's not a roadmap item to list, it's a closed
+  decision).
+- **Column-name autocomplete, implemented**: `SQLCompletionController`
+  now has a `columnNamesProvider` alongside `tableNamesProvider`. In the
+  non-identifier-position branch (previously keywords only), it merges
+  keyword matches with column matches from
+  `referencedTableNames()` — a best-effort regex over `FROM`/`JOIN`
+  clauses in the *statement under the caret* (via `SQLStatementLocator`,
+  not the whole buffer, so a multi-statement document doesn't leak
+  columns from an unrelated statement). `MySQLDatabaseConnection.
+  listColumns(table:inDatabase:)` (new — `SHOW COLUMNS FROM`) backs it,
+  fetched lazily per table on first ask and cached
+  (`cachedColumnsByTable`), since unlike table names there's no small
+  fixed set to warm ahead of time.
+- **Gap 1 fixed — table/column completion now follows the last-`USE`'d
+  database**: previously kept caching against
+  `profile.database` (the connection's originally-configured default)
+  even after the sidebar's #6 fix switched databases server-side.
+  `ConnectionManager` now tracks `currentDatabases: [UUID: String]`
+  (initialized to `profile.database` on connect, updated by
+  `AppState.selectDatabase` after a successful `USE`), and
+  `SQLEditorViewController`'s table-name cache key
+  (`cachedTablesKey`) and column fetches both read that instead —
+  clearing `cachedColumnsByTable` on a database change, since a
+  same-named table in a different database could have different columns.
+- **Gap 2 fixed — popup auto-dismisses on a stray caret move**:
+  `SQLCompletionController` now tracks `completionAnchor` (the caret
+  position `showCompletions` expects next) and hides the popup in the new
+  `selectionDidChange()` if the caret ends up anywhere else — arrow keys
+  past it, a mouse click elsewhere. Deliberately *not* implemented via an
+  `isHandlingTextChange`-style reentrancy flag: whether
+  `textViewDidChangeSelection` fires nested inside `textDidChange`'s call
+  frame (flag still true) or as a later sibling call within the same
+  keystroke (flag already reset by `defer`) isn't something to rely on
+  without being able to verify it live — the anchor approach sidesteps
+  the ambiguity entirely, since by the time `selectionDidChange` runs,
+  `textDidChange` has already updated the anchor either way.

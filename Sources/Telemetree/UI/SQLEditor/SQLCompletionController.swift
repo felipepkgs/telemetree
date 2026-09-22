@@ -1,11 +1,13 @@
 import AppKit
 
 /// Drives a Tab-only completion popup for a single NSTextView — keywords
-/// always, plus (when `tableNamesProvider` returns any) real table names
-/// right after FROM/JOIN/INTO/UPDATE/etc. Shared by the main SQL editor
-/// and the snippet editor so both get the same behavior instead of two
-/// copies drifting apart; the snippet editor just leaves the provider at
-/// its default (no tables — snippets aren't tied to one connection).
+/// always, real table names (when `tableNamesProvider` returns any) right
+/// after FROM/JOIN/INTO/UPDATE/etc., and real column names (when
+/// `columnNamesProvider` returns any) everywhere else, scoped to whatever
+/// tables the current statement actually references. Shared by the main
+/// SQL editor and the snippet editor so both get the same behavior instead
+/// of two copies drifting apart; the snippet editor leaves both providers
+/// at their defaults (no schema — snippets aren't tied to one connection).
 ///
 /// Deliberately not `NSTextView.complete(_:)` — see CompletionPopup's own
 /// doc comment for why.
@@ -14,12 +16,21 @@ final class SQLCompletionController {
     private unowned let textView: NSTextView
     private let popup = CompletionPopup()
     private var completionRange: NSRange?
+    /// Where the caret was expected to be after the edit that last
+    /// showed/updated the popup — see `selectionDidChange`.
+    private var completionAnchor: Int?
 
     /// Real table names for the identifier position, real case, filtered
     /// by prefix by the caller as needed — supplied fresh each call since
     /// it's cheap (a stored array lookup) and avoids this controller
     /// needing to know anything about connections/caching.
     var tableNamesProvider: () -> [String] = { [] }
+
+    /// Real column names for the given (best-effort) table names —
+    /// referencedTableNames() extracts those from the statement under the
+    /// caret via a keyword regex, not a real parser (same tradeoff as
+    /// DestructiveSQLGuard/SQLStatementLocator elsewhere in this app).
+    var columnNamesProvider: (_ tables: [String]) -> [String] = { _ in [] }
 
     init(textView: NSTextView) {
         self.textView = textView
@@ -31,7 +42,18 @@ final class SQLCompletionController {
 
     func hide() {
         completionRange = nil
+        completionAnchor = nil
         popup.hide()
+    }
+
+    /// Dismisses the popup if the caret ended up somewhere it didn't
+    /// expect — arrow keys past it, a mouse click elsewhere, anything
+    /// that isn't the text edit that just showed/updated it (that path
+    /// already moves completionAnchor to match, via showCompletions,
+    /// before this could ever see a mismatch).
+    func selectionDidChange() {
+        guard popup.isVisible, textView.selectedRange().location != completionAnchor else { return }
+        hide()
     }
 
     /// Intercepts Tab/arrows/Escape while the popup is visible so Tab is
@@ -70,6 +92,11 @@ final class SQLCompletionController {
         "databases", "view", "index", "trigger", "procedure", "function"
     ]
 
+    private static let tableReferenceRegex = try! NSRegularExpression(
+        pattern: #"\b(?:FROM|JOIN)\s+(?:`?[A-Za-z_][A-Za-z0-9_]*`?\.)?`?([A-Za-z_][A-Za-z0-9_]*)`?"#,
+        options: .caseInsensitive
+    )
+
     private func updateCompletions() {
         guard textView.selectedRange().length == 0,
               let range = currentWordRange(endingAt: textView.selectedRange().location),
@@ -82,10 +109,13 @@ final class SQLCompletionController {
         if precedingWordExpectsIdentifier(before: range.location) {
             candidates = tableNamesProvider().filter { $0.lowercased().hasPrefix(partial) }.sorted()
         } else {
-            candidates = SQLSyntaxHighlighter.keywords
+            let keywordMatches = SQLSyntaxHighlighter.keywords
                 .filter { $0.hasPrefix(partial) }
-                .sorted()
                 .map { $0.uppercased() }
+            let columnMatches = columnNamesProvider(referencedTableNames())
+                .filter { $0.lowercased().hasPrefix(partial) }
+            candidates = (keywordMatches + columnMatches)
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
         }
         // Nothing left to suggest once the only match is exactly what's
         // already typed (e.g. right after accepting one).
@@ -97,10 +127,29 @@ final class SQLCompletionController {
         showCompletions(candidates)
     }
 
+    /// Best-effort table names referenced by the statement under the
+    /// caret (not the whole buffer — a multi-statement document shouldn't
+    /// suggest columns from an unrelated statement elsewhere in it).
+    private func referencedTableNames() -> [String] {
+        let fullText = textView.string
+        let scopeText = SQLStatementLocator.statement(containing: textView.selectedRange().location, in: fullText)?.text ?? fullText
+        let nsScope = scopeText as NSString
+        let matches = Self.tableReferenceRegex.matches(in: scopeText, range: NSRange(location: 0, length: nsScope.length))
+        var seen = Set<String>()
+        var names: [String] = []
+        for match in matches where match.numberOfRanges > 1 {
+            let name = nsScope.substring(with: match.range(at: 1))
+            guard seen.insert(name.lowercased()).inserted else { continue }
+            names.append(name)
+        }
+        return names
+    }
+
     private func showCompletions(_ candidates: [String]) {
         guard let range = completionRange, let window = textView.window else { return }
         let caretRange = NSRange(location: NSMaxRange(range), length: 0)
         let screenRect = textView.firstRect(forCharacterRange: caretRange, actualRange: nil)
+        completionAnchor = NSMaxRange(range)
         popup.show(candidates: candidates, at: NSPoint(x: screenRect.minX, y: screenRect.minY), parent: window)
     }
 

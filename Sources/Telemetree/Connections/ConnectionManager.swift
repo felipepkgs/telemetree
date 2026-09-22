@@ -8,6 +8,11 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var profiles: [ConnectionProfile] = []
     @Published private(set) var connectedIDs: Set<UUID> = []
     @Published var connectionErrors: [UUID: String] = [:]
+    /// The database each connection is currently `USE`d against — starts
+    /// at the profile's configured default on connect, updated by
+    /// AppState.selectDatabase when the sidebar clicks a different one.
+    /// Session state on the server, so it's per-connection, not per-tab.
+    @Published private(set) var currentDatabases: [UUID: String] = [:]
 
     private var connections: [UUID: any DatabaseConnection] = [:]
     private let driver: any DatabaseDriver = MySQLDriver()
@@ -32,6 +37,7 @@ final class ConnectionManager: ObservableObject {
         KeychainManager.deletePassword(for: profile.id)
         connections[profile.id] = nil
         connectedIDs.remove(profile.id)
+        currentDatabases[profile.id] = nil
         save()
     }
 
@@ -49,9 +55,17 @@ final class ConnectionManager: ObservableObject {
             let connection = try await driver.connect(profile: profile, password: password)
             connections[profile.id] = connection
             connectedIDs.insert(profile.id)
+            currentDatabases[profile.id] = profile.database
         } catch {
             connectionErrors[profile.id] = error.localizedDescription
         }
+    }
+
+    /// Called after a successful `USE` on this connection (see
+    /// AppState.selectDatabase) — nothing here talks to the database
+    /// itself, this just records what the caller already switched to.
+    func setCurrentDatabase(_ database: String, for profileID: UUID) {
+        currentDatabases[profileID] = database
     }
 
     func disconnect(_ profile: ConnectionProfile) async {
@@ -60,6 +74,7 @@ final class ConnectionManager: ObservableObject {
         }
         connections[profile.id] = nil
         connectedIDs.remove(profile.id)
+        currentDatabases[profile.id] = nil
     }
 
     /// The socket died under us (server restart, network drop) — drop the
@@ -69,6 +84,7 @@ final class ConnectionManager: ObservableObject {
     func markDisconnected(_ profileID: UUID) {
         connections[profileID] = nil
         connectedIDs.remove(profileID)
+        currentDatabases[profileID] = nil
     }
 
     func testConnection(_ profile: ConnectionProfile, password: String) async -> Result<Void, Error> {

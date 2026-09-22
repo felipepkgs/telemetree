@@ -19,16 +19,26 @@ final class SQLEditorViewController: NSViewController {
     // MARK: - Completion
     private lazy var completionController = SQLCompletionController(textView: textView)
 
-    // MARK: - Table-name completion cache
+    // MARK: - Schema completion cache
     //
-    // Fetched once per connection (not per keystroke — completion has to
-    // return synchronously, so this is kept warm ahead of time via the
-    // Combine subscriptions in bindWorkspace/bindActiveDocument), fed to
-    // completionController via tableNamesProvider. Real names in their
-    // real case — no forcing "order" the table to "ORDER" just because
-    // "order" also happens to be a SQL keyword.
+    // Table names are fetched once per (connection, current database) —
+    // not per keystroke, completion has to return synchronously, so this
+    // is kept warm ahead of time via the Combine subscriptions in
+    // bindWorkspace/bindActiveDocument. Keyed on the connection's current
+    // database (connectionManager.currentDatabases, set by
+    // AppState.selectDatabase when the sidebar's last-clicked database
+    // changes it via USE), not the profile's originally-configured one —
+    // otherwise completion would keep suggesting tables from a database
+    // you've since switched away from.
     private var cachedTableNames: [String] = []
-    private var cachedTablesProfileID: UUID?
+    private var cachedTablesKey: String?
+
+    // Column names are fetched per table, on demand — unlike table names,
+    // there's no fixed small set to warm ahead of time, so this fills in
+    // lazily as completion actually asks about a table (see
+    // columnNamesProvider below), keyed by lowercased table name.
+    private var cachedColumnsByTable: [String: [String]] = [:]
+    private var pendingColumnFetches: Set<String> = []
 
     init(appState: AppState) {
         self.appState = appState
@@ -47,6 +57,7 @@ final class SQLEditorViewController: NSViewController {
         super.viewDidLoad()
         setupUI()
         completionController.tableNamesProvider = { [weak self] in self?.cachedTableNames ?? [] }
+        completionController.columnNamesProvider = { [weak self] tables in self?.columnNames(for: tables) ?? [] }
         bindWorkspace()
     }
 
@@ -158,6 +169,11 @@ final class SQLEditorViewController: NSViewController {
             .sink { [weak self] _ in self?.refreshTableNamesIfNeeded() }
             .store(in: &appCancellables)
 
+        appState.connectionManager.$currentDatabases
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshTableNamesIfNeeded() }
+            .store(in: &appCancellables)
+
         applyTheme(appState.themeStore.current)
 
         Publishers.CombineLatest(appState.fontPreferences.$choice, appState.fontPreferences.$size)
@@ -247,13 +263,59 @@ final class SQLEditorViewController: NSViewController {
 
     private func refreshTableNamesIfNeeded() {
         guard let profile = appState.selectedProfile,
-              let connection = appState.connectionManager.connection(for: profile.id),
-              cachedTablesProfileID != profile.id else { return }
-        cachedTablesProfileID = profile.id
+              let connection = appState.connectionManager.connection(for: profile.id) else { return }
+        let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
+        let key = "\(profile.id)|\(database)"
+        guard cachedTablesKey != key else { return }
+        cachedTablesKey = key
+        // Column names are scoped to a specific table within a specific
+        // database — once the database changes, anything cached under the
+        // old one is stale (a same-named table there could have different
+        // columns, or not exist at all).
+        cachedColumnsByTable.removeAll()
         Task {
-            let tables = (try? await connection.listTables(inDatabase: profile.database))?.map(\.name) ?? []
-            guard appState.selectedProfile?.id == profile.id else { return }
+            let tables = (try? await connection.listTables(inDatabase: database))?.map(\.name) ?? []
+            guard appState.selectedProfile?.id == profile.id,
+                  (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
             cachedTableNames = tables
+        }
+    }
+
+    /// Synchronous by necessity (completion has to return immediately) —
+    /// returns whatever's already cached and kicks off a fetch in the
+    /// background for any table that isn't, so the next keystroke picks
+    /// it up. `tables` is a best-effort list of table names referenced by
+    /// the statement under the caret (see SQLCompletionController).
+    private func columnNames(for tables: [String]) -> [String] {
+        var results: [String] = []
+        for table in tables {
+            let key = table.lowercased()
+            if let cached = cachedColumnsByTable[key] {
+                results.append(contentsOf: cached)
+            } else {
+                fetchColumnsIfNeeded(table: table)
+            }
+        }
+        return results
+    }
+
+    private func fetchColumnsIfNeeded(table: String) {
+        let key = table.lowercased()
+        guard !pendingColumnFetches.contains(key),
+              let profile = appState.selectedProfile,
+              let connection = appState.connectionManager.connection(for: profile.id) else { return }
+        let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
+        pendingColumnFetches.insert(key)
+        Task {
+            defer { pendingColumnFetches.remove(key) }
+            let columns = (try? await connection.listColumns(table: table, inDatabase: database)) ?? []
+            guard appState.selectedProfile?.id == profile.id,
+                  (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
+            cachedColumnsByTable[key] = columns
+            // The popup may still be open waiting on exactly this table's
+            // columns — recompute now that they've arrived instead of
+            // making the user retype a character to see them.
+            completionController.textDidChange()
         }
     }
 
@@ -340,6 +402,7 @@ extension SQLEditorViewController: NSTextViewDelegate {
 
     func textViewDidChangeSelection(_ notification: Notification) {
         updateStatementHighlight()
+        completionController.selectionDidChange()
     }
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {

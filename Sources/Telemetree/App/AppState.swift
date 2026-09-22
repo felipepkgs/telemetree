@@ -134,7 +134,8 @@ final class AppState: ObservableObject {
                 await connectionManager.connect(profile)
             }
             guard let connection = connectionManager.connection(for: profileID) else { return }
-            _ = try? await connection.execute(sql: "USE `\(database)`")
+            guard (try? await connection.execute(sql: "USE `\(database)`")) != nil else { return }
+            connectionManager.setCurrentDatabase(database, for: profileID)
         }
     }
 

@@ -116,4 +116,8 @@ extension SnippetEditorWindowController: NSTextViewDelegate {
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         completionController.doCommandBy(commandSelector)
     }
+
+    func textViewDidChangeSelection(_ notification: Notification) {
+        completionController.selectionDidChange()
+    }
 }

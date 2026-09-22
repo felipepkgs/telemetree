@@ -79,6 +79,11 @@ final class MySQLDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first.map { DatabaseTable(name: $0.displayString) } }
     }
 
+    func listColumns(table: String, inDatabase database: String) async throws -> [String] {
+        let result = try await execute(sql: "SHOW COLUMNS FROM `\(database)`.`\(table)`")
+        return result.rows.compactMap { $0.first?.displayString }
+    }
+
     func close() async {
         try? await connection.close().get()
         try? await eventLoopGroup.shutdownGracefully()

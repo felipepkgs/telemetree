@@ -1,8 +1,9 @@
 import AppKit
 
-/// Vapor family only for now — see SPEC.md "Cross-app theme system" for
-/// the full 8-theme spec (Meniscus/Ulm/Instrument/Unibody deferred).
-/// Adapted from a Touch Bar overlay's theme language onto Telemetree's
+/// Vapor family only — the other theme families from the shared
+/// cross-app spec (Meniscus/Ulm/Instrument/Unibody) aren't happening
+/// here, full stop; see SPEC.md "Cross-app theme system" for the
+/// decision. Adapted from a Touch Bar overlay's theme language onto Telemetree's
 /// actual chrome: bar/chip fill+border on toolbars, the active-tab pill,
 /// and the connection-status dot (the closest analogue to the original
 /// "touch dot").
