@@ -216,33 +216,48 @@ final class SQLCompletionController {
         guard let range = completionRange, currentCandidates.indices.contains(popup.selectedIndex) else { return }
         let candidate = currentCandidates[popup.selectedIndex]
         hide()
-        // Insert the FROM clause FIRST, not after — its insertion point is
-        // always later in the buffer than `range`, so inserting there
-        // doesn't shift `range`'s own coordinates, and the field insert
-        // below (done last) naturally leaves the caret exactly where it
-        // belongs on its own. No separate "restore the caret" step needed
-        // — and nothing to race against, unlike inserting the field first
-        // and trying to move the caret back afterward.
-        if let table = candidate.impliedFromTable {
-            insertFromClause(for: table, statementCaret: range.location)
+        guard let table = candidate.impliedFromTable else {
+            textView.insertText(candidate.insertText, replacementRange: range)
+            return
         }
-        textView.insertText(candidate.insertText, replacementRange: range)
+        acceptQualifiedCompletion(candidate, range: range, table: table)
     }
 
-    /// Inserts ` FROM `table`` at the end of the statement containing
-    /// `statementCaret` — before a trailing ";" if there is one.
-    private func insertFromClause(for table: String, statementCaret: Int) {
-        guard let statement = SQLStatementLocator.statement(containing: statementCaret, in: textView.string) else { return }
-        let nsText = textView.string as NSString
-        var insertAt = NSMaxRange(statement.range)
-        if insertAt > statement.range.location, nsText.substring(with: NSRange(location: insertAt - 1, length: 1)) == ";" {
-            insertAt -= 1
+    /// A qualified table.column suggestion touches two places at once —
+    /// the field itself, and a new FROM clause at the end of the
+    /// statement. Tried as two separate insertText calls first (FROM
+    /// then field, and field then a manual caret restore) — both left
+    /// the caret at the end of the FROM clause instead of back at the
+    /// field, in testing, regardless of order. Doing it as a single
+    /// textStorage edit over the whole statement removes whatever about
+    /// two back-to-back programmatic insertText calls was causing that,
+    /// rather than trying to out-guess it a third time.
+    private func acceptQualifiedCompletion(_ candidate: Candidate, range: NSRange, table: String) {
+        guard let statement = SQLStatementLocator.statement(containing: range.location, in: textView.string) else {
+            textView.insertText(candidate.insertText, replacementRange: range)
+            return
         }
-        while insertAt > statement.range.location,
-              nsText.substring(with: NSRange(location: insertAt - 1, length: 1)).rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
-            insertAt -= 1
+        let nsStatement = (textView.string as NSString).substring(with: statement.range) as NSString
+
+        var fromInsertOffset = nsStatement.length
+        if fromInsertOffset > 0, nsStatement.substring(with: NSRange(location: fromInsertOffset - 1, length: 1)) == ";" {
+            fromInsertOffset -= 1
         }
-        textView.insertText(" FROM `\(table)`", replacementRange: NSRange(location: insertAt, length: 0))
+        while fromInsertOffset > 0,
+              nsStatement.substring(with: NSRange(location: fromInsertOffset - 1, length: 1)).rangeOfCharacter(from: .whitespacesAndNewlines) != nil {
+            fromInsertOffset -= 1
+        }
+
+        let fieldOffset = range.location - statement.range.location
+        let mutable = NSMutableString(string: nsStatement as String)
+        // Apply the later edit (FROM) first so fieldOffset, which points
+        // earlier in the string, stays valid for the second edit.
+        mutable.replaceCharacters(in: NSRange(location: fromInsertOffset, length: 0), with: " FROM `\(table)`")
+        mutable.replaceCharacters(in: NSRange(location: fieldOffset, length: range.length), with: candidate.insertText)
+
+        textView.insertText(mutable as String, replacementRange: statement.range)
+        let caret = statement.range.location + fieldOffset + (candidate.insertText as NSString).length
+        textView.setSelectedRange(NSRange(location: caret, length: 0))
     }
 
     private func currentWordRange(endingAt location: Int) -> NSRange? {

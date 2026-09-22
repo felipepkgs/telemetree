@@ -661,22 +661,23 @@ shipping:
   gained `allColumnsProvider` — when the statement under the caret has
   no `FROM` yet, completion offers `table.column` across every table
   this connection has cached columns for (warmed proactively in
-  `SQLEditorViewController.refreshTableNamesIfNeeded`, sequentially
-  — one `SHOW COLUMNS` at a time, since this is a single MySQL
+  `SQLEditorViewController.refreshTableNamesIfNeeded`, sequentially —
+  one `SHOW COLUMNS` at a time, since this is a single MySQL
   connection, not a pool). Accepting one inserts just the column and
-  appends the matching `FROM \`table\`` to the end of the statement.
-  The FROM insertion happens *before* the field insertion, not after
-  with a manual caret-restore — its insertion point is always later in
-  the buffer than the field's, so inserting it first doesn't shift the
-  field's coordinates, and the field insert (done last) naturally
-  leaves the caret in the right place with nothing to race against.
-  This was tried the other way first (insert field, then append FROM,
-  then explicitly restore the caret) and reordered after the user
-  reported the restore didn't seem to work — not confirmed root-caused
-  against a live run (this environment's accessibility automation is
-  blocked, so the fix couldn't be verified interactively), but the
-  reordered version removes an entire class of insertText/
-  textDidChange timing risk regardless.
+  appends the matching `FROM \`table\`` to the end of the statement,
+  caret staying right at the field, not jumping to the new FROM.
+  Getting the caret behavior right took three attempts: (1) insert
+  field, append FROM, manually restore the caret — didn't work; (2)
+  reorder to append FROM first so the field insert (done last) lands
+  the caret naturally — still didn't work, live-tested and confirmed
+  broken by the user (this environment's own accessibility automation
+  is blocked, so these had to be verified by the user directly rather
+  than by me interactively); (3) root cause was two separate
+  programmatic `insertText` calls in the same synchronous pass, not
+  their order — rebuilt as a single textStorage edit over the whole
+  statement (field replaced and FROM appended together, in one
+  `insertText` call) followed by one explicit `setSelectedRange`.
+  Confirmed working. Marked V1 by the user at this point.
 - **Export CSV and JSON**: both next to Copy Results.
   CSV is hand-rolled RFC 4180 quoting; JSON goes through
   `JSONSerialization` rather than a hand-rolled serializer (correct
