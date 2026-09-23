@@ -58,6 +58,13 @@ final class SQLCompletionController {
     /// completions or sidebar browsing), not an eager full-schema fetch.
     var allColumnsProvider: () -> [(table: String, column: String)] = { [] }
 
+    /// Quotes an identifier for the auto-inserted FROM clause the way
+    /// the active connection's engine actually accepts — Postgres only
+    /// understands double quotes there, backticks are a syntax error
+    /// (confirmed live). Defaults to MySQL-style backticks, matching
+    /// this app's original/most common target.
+    var identifierQuoter: (String) -> String = { "`\($0)`" }
+
     init(textView: NSTextView) {
         self.textView = textView
     }
@@ -252,7 +259,7 @@ final class SQLCompletionController {
         let mutable = NSMutableString(string: nsStatement as String)
         // Apply the later edit (FROM) first so fieldOffset, which points
         // earlier in the string, stays valid for the second edit.
-        mutable.replaceCharacters(in: NSRange(location: fromInsertOffset, length: 0), with: " FROM `\(table)`")
+        mutable.replaceCharacters(in: NSRange(location: fromInsertOffset, length: 0), with: " FROM \(identifierQuoter(table))")
         mutable.replaceCharacters(in: NSRange(location: fieldOffset, length: range.length), with: candidate.insertText)
 
         textView.insertText(mutable as String, replacementRange: statement.range)

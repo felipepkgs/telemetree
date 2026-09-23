@@ -41,6 +41,7 @@ final class SidebarViewController: NSViewController {
     private let footer = NSView()
     private let searchField = NSSearchField()
     private var trashActions: [NSButton: () -> Void] = [:]
+    private var refreshActions: [NSButton: () -> Void] = [:]
 
     private var searchText: String = "" {
         didSet {
@@ -326,7 +327,23 @@ final class SidebarViewController: NSViewController {
     private func loadChildrenIfNeeded(for node: SidebarNode) {
         guard !node.childrenLoaded else { return }
         node.childrenLoaded = true
+        fetchChildren(for: node)
+    }
 
+    /// Forces a re-fetch even when already loaded — the hover "refresh"
+    /// button on connection/database rows uses this. Without it, a table
+    /// created/dropped elsewhere after the sidebar already expanded that
+    /// node stayed invisible until the whole app relaunched, since
+    /// loadChildrenIfNeeded only ever fetches once per node.
+    private func refreshChildren(for node: SidebarNode) {
+        node.childrenLoaded = true
+        fetchChildren(for: node)
+        if !outlineView.isItemExpanded(node) {
+            outlineView.expandItem(node)
+        }
+    }
+
+    private func fetchChildren(for node: SidebarNode) {
         switch node.kind {
         case .connection(let profile):
             Task {
@@ -353,6 +370,15 @@ final class SidebarViewController: NSViewController {
             }
         case .sectionHeader, .queryFolder, .snippetFolder, .table, .queryDocument, .snippet, .placeholder:
             break
+        }
+    }
+
+    private func refreshAction(for node: SidebarNode) -> (() -> Void)? {
+        switch node.kind {
+        case .connection, .database:
+            return { [weak self] in self?.refreshChildren(for: node) }
+        default:
+            return nil
         }
     }
 
@@ -732,7 +758,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         case .connection(let profile):
             appState.setActiveConnection(profile.id)
         case .table(let profile, let database, let table):
-            appState.runQuery("SELECT * FROM `\(database)`.`\(table.name)` LIMIT 100;", connectionProfileID: profile.id)
+            appState.runQuery(previewQuery(profile: profile, database: database, table: table.name), connectionProfileID: profile.id)
         case .database(let profile, let database):
             appState.selectDatabase(database, profileID: profile.id)
         case .queryDocument(let document):
@@ -741,6 +767,23 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             appState.insertSnippetIntoActiveEditor(snippet.sql)
         case .sectionHeader, .queryFolder, .snippetFolder, .placeholder:
             break
+        }
+    }
+
+    /// MySQL supports `db`.`table` cross-database qualification, so that
+    /// prefix is worth keeping there; Postgres has no such thing (dot
+    /// qualification there is schema.table *within* the connected
+    /// database, not database.table — a different database means a
+    /// different connection entirely) and SQLite has no second
+    /// "database" to qualify against at all, so both just query the bare
+    /// table name.
+    private func previewQuery(profile: ConnectionProfile, database: String, table: String) -> String {
+        let quotedTable = profile.engine.quoteIdentifier(table)
+        switch profile.engine {
+        case .mysql:
+            return "SELECT * FROM \(profile.engine.quoteIdentifier(database)).\(quotedTable) LIMIT 100;"
+        case .postgres, .sqlite:
+            return "SELECT * FROM \(quotedTable) LIMIT 100;"
         }
     }
 
@@ -795,21 +838,25 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         let dotView: StatusDotView
         let labelDotView: NSView
         let trashButton: AccessibleIconButton
+        let refreshButton: AccessibleIconButton
         let dotIdentifier = NSUserInterfaceItemIdentifier("StatusDot")
         let labelDotIdentifier = NSUserInterfaceItemIdentifier("LabelDot")
         let trashIdentifier = NSUserInterfaceItemIdentifier("TrashButton")
+        let refreshIdentifier = NSUserInterfaceItemIdentifier("RefreshButton")
 
         if let reused = outlineView.makeView(withIdentifier: identifier, owner: self) as? HoverTrackingCellView,
            let reusedText = reused.textField, let reusedImage = reused.imageView,
            let reusedDot = reused.subviews.first(where: { $0.identifier == dotIdentifier }) as? StatusDotView,
            let reusedLabelDot = reused.subviews.first(where: { $0.identifier == labelDotIdentifier }),
-           let reusedTrash = reused.subviews.first(where: { $0.identifier == trashIdentifier }) as? AccessibleIconButton {
+           let reusedTrash = reused.subviews.first(where: { $0.identifier == trashIdentifier }) as? AccessibleIconButton,
+           let reusedRefresh = reused.subviews.first(where: { $0.identifier == refreshIdentifier }) as? AccessibleIconButton {
             cell = reused
             textField = reusedText
             imageView = reusedImage
             dotView = reusedDot
             labelDotView = reusedLabelDot
             trashButton = reusedTrash
+            refreshButton = reusedRefresh
         } else {
             cell = HoverTrackingCellView()
             cell.identifier = identifier
@@ -847,6 +894,20 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             trashButton.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(trashButton)
 
+            // SF Symbol, not a bundled Icons8 PNG like the other row
+            // icons — this one's new and doesn't need its own asset.
+            refreshButton = AccessibleIconButton(
+                image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil) ?? NSImage(),
+                target: nil,
+                action: nil
+            )
+            refreshButton.identifier = refreshIdentifier
+            refreshButton.isBordered = false
+            refreshButton.bezelStyle = .inline
+            refreshButton.isHidden = true
+            refreshButton.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(refreshButton)
+
             NSLayoutConstraint.activate([
                 imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
                 imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
@@ -870,7 +931,15 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                 trashButton.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
                 trashButton.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 trashButton.widthAnchor.constraint(equalToConstant: 14),
-                trashButton.heightAnchor.constraint(equalToConstant: 14)
+                trashButton.heightAnchor.constraint(equalToConstant: 14),
+
+                // Same trailing slot as trashButton — connection/database
+                // rows never show a delete button there (deleteAction
+                // returns nil for them), so there's no conflict.
+                refreshButton.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                refreshButton.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                refreshButton.widthAnchor.constraint(equalToConstant: 14),
+                refreshButton.heightAnchor.constraint(equalToConstant: 14)
             ])
         }
 
@@ -885,6 +954,9 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         trashButton.isHidden = true
         trashButton.target = nil
         trashButton.action = nil
+        refreshButton.isHidden = true
+        refreshButton.target = nil
+        refreshButton.action = nil
         cell.onHoverChange = nil
 
         if let color = labelColorValue(for: node.kind) {
@@ -902,6 +974,24 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             trashButton.identifier = trashIdentifier
             trashButton.accessibilityLabelOverride = "Delete \(node.title)"
             trashActions[trashButton] = deleteAction
+        } else if let refreshAction = refreshAction(for: node) {
+            // Schema browsing has no other way to see a table/database
+            // created or dropped elsewhere mid-session short of quitting
+            // and relaunching — this re-fetches just that node's children.
+            cell.onHoverChange = { [weak refreshButton, weak labelDotView, weak dotView] hovering in
+                refreshButton?.isHidden = !hovering
+                if hovering {
+                    labelDotView?.isHidden = true
+                    dotView?.isHidden = true
+                } else if case .connection = node.kind {
+                    dotView?.isHidden = false
+                }
+            }
+            refreshButton.target = self
+            refreshButton.action = #selector(self.refreshButtonTapped(_:))
+            refreshButton.identifier = refreshIdentifier
+            refreshButton.accessibilityLabelOverride = "Refresh \(node.title)"
+            refreshActions[refreshButton] = refreshAction
         }
 
         switch node.kind {
@@ -1050,5 +1140,9 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
 
     @objc private func trashButtonTapped(_ sender: NSButton) {
         trashActions[sender]?()
+    }
+
+    @objc private func refreshButtonTapped(_ sender: NSButton) {
+        refreshActions[sender]?()
     }
 }

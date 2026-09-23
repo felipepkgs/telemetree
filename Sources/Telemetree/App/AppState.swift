@@ -128,13 +128,20 @@ final class AppState: ObservableObject {
     /// having to write `` `database`.`orders` `` every time.
     func selectDatabase(_ database: String, profileID: UUID) {
         setActiveConnection(profileID)
+        guard let profile = connectionManager.profiles.first(where: { $0.id == profileID }) else { return }
         Task {
             if !connectionManager.connectedIDs.contains(profileID) {
-                guard let profile = connectionManager.profiles.first(where: { $0.id == profileID }) else { return }
                 await connectionManager.connect(profile)
             }
             guard let connection = connectionManager.connection(for: profileID) else { return }
-            guard (try? await connection.execute(sql: "USE `\(database)`")) != nil else { return }
+            // Only MySQL has a session-level USE — Postgres has no
+            // equivalent at all (a connection is bound to one database
+            // for its lifetime; "switching" means a new connection, not
+            // a statement) and SQLite has nothing to switch between
+            // (one file is the whole "database"). Trying USE on either
+            // would just be a guaranteed syntax error.
+            guard profile.engine == .mysql else { return }
+            guard (try? await connection.execute(sql: "USE \(profile.engine.quoteIdentifier(database))")) != nil else { return }
             connectionManager.setCurrentDatabase(database, for: profileID)
         }
     }

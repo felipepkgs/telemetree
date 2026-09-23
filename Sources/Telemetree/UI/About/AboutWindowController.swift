@@ -4,7 +4,7 @@ import AppKit
 final class AboutWindowController: NSWindowController {
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 280),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -44,12 +44,16 @@ final class AboutWindowController: NSWindowController {
         linkButton.contentTintColor = .linkColor
         linkButton.font = FontLibrary.sans(11)
 
-        let stack = NSStackView(views: [icon, nameLabel, versionLabel, creditsLabel, linkButton])
+        let submitIssueButton = NSButton(title: "Submit an Issue…", target: self, action: #selector(openSubmitIssue))
+        submitIssueButton.bezelStyle = .rounded
+
+        let stack = NSStackView(views: [icon, nameLabel, versionLabel, creditsLabel, linkButton, submitIssueButton])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 6
         stack.edgeInsets = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.setCustomSpacing(14, after: linkButton)
 
         contentView.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -65,6 +69,12 @@ final class AboutWindowController: NSWindowController {
 
     @objc private func openIcons8() {
         if let url = URL(string: "https://icons8.com") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openSubmitIssue() {
+        if let url = URL(string: "https://github.com/felipepkgs/telemetree/issues/new") {
             NSWorkspace.shared.open(url)
         }
     }

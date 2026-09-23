@@ -15,7 +15,17 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var currentDatabases: [UUID: String] = [:]
 
     private var connections: [UUID: any DatabaseConnection] = [:]
-    private let driver: any DatabaseDriver = MySQLDriver()
+    private let mysqlDriver: any DatabaseDriver = MySQLDriver()
+    private let postgresDriver: any DatabaseDriver = PostgresDriver()
+    private let sqliteDriver: any DatabaseDriver = SQLiteDriver()
+
+    private func driver(for engine: DatabaseEngine) -> any DatabaseDriver {
+        switch engine {
+        case .mysql: return mysqlDriver
+        case .postgres: return postgresDriver
+        case .sqlite: return sqliteDriver
+        }
+    }
     private let storeURL: URL
 
     init() {
@@ -47,12 +57,21 @@ final class ConnectionManager: ObservableObject {
 
     func connect(_ profile: ConnectionProfile) async {
         connectionErrors[profile.id] = nil
-        guard let password = KeychainManager.readPassword(for: profile.id) else {
-            connectionErrors[profile.id] = "No saved password for this connection."
-            return
+        // SQLite has no username/password at all — a file path is the
+        // whole "connection." Only MySQL/Postgres need a saved Keychain
+        // entry to proceed.
+        let password: String
+        if profile.engine.connectsToFile {
+            password = ""
+        } else {
+            guard let saved = KeychainManager.readPassword(for: profile.id) else {
+                connectionErrors[profile.id] = "No saved password for this connection."
+                return
+            }
+            password = saved
         }
         do {
-            let connection = try await driver.connect(profile: profile, password: password)
+            let connection = try await driver(for: profile.engine).connect(profile: profile, password: password)
             connections[profile.id] = connection
             connectedIDs.insert(profile.id)
             currentDatabases[profile.id] = profile.database
@@ -89,7 +108,7 @@ final class ConnectionManager: ObservableObject {
 
     func testConnection(_ profile: ConnectionProfile, password: String) async -> Result<Void, Error> {
         do {
-            let connection = try await driver.connect(profile: profile, password: password)
+            let connection = try await driver(for: profile.engine).connect(profile: profile, password: password)
             await connection.close()
             return .success(())
         } catch {

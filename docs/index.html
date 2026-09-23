@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Telemetree — a native macOS MySQL client</title>
-<meta name="description" content="Telemetree is a fast, keyboard-first native macOS MySQL client built around persistent query documents and a snippet library instead of disposable tabs. Swift + AppKit, not Electron.">
+<title>Telemetree — a native macOS SQL client</title>
+<meta name="description" content="Telemetree is a fast, keyboard-first native macOS SQL client for MySQL, PostgreSQL and SQLite, built around persistent query documents and a snippet library instead of disposable tabs. Swift + AppKit, not Electron.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Ccircle cx='11' cy='4' r='2' fill='%23af52de'/%3E%3Cline x1='11' y1='6' x2='11' y2='18' stroke='%23af52de' stroke-width='1.8'/%3E%3Cline x1='11' y1='11' x2='17' y2='11' stroke='%23af52de' stroke-width='1.8'/%3E%3Ccircle cx='17' cy='11' r='1.9' fill='%23af52de'/%3E%3Cline x1='11' y1='15.5' x2='16' y2='15.5' stroke='%23af52de' stroke-width='1.8'/%3E%3Ccircle cx='16' cy='15.5' r='1.9' fill='%23af52de'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="assets/style.css">
 </head>
@@ -37,9 +37,10 @@
     <div class="status-pill"><span class="dot"></span> In active development — Milestones 1–5 shipped</div>
     <h1>A SQL editor for queries you <span class="accent">keep</span>, not tabs you lose.</h1>
     <p class="hero-sub">
-      Telemetree is a fast, keyboard-first native macOS MySQL client — Swift and
-      AppKit, not Electron. Built around persistent query documents and a
-      snippet library, instead of the disposable tabs most SQL clients give you.
+      Telemetree is a fast, keyboard-first native macOS SQL client for MySQL,
+      PostgreSQL and SQLite — Swift and AppKit, not Electron. Built around
+      persistent query documents and a snippet library, instead of the
+      disposable tabs most SQL clients give you.
     </p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="https://github.com/felipepkgs/telemetree">View on GitHub</a>
@@ -236,17 +237,18 @@
     <div class="section-head">
       <p class="eyebrow">Where it stands</p>
       <h2>Honest status, not a launch page</h2>
-      <p>This is a personal project, built and used against real MySQL databases. Releases are ad-hoc signed, not notarized — Gatekeeper will still flag the first launch.</p>
+      <p>This is a personal project, built and used against real MySQL, PostgreSQL, and SQLite databases. Releases are ad-hoc signed, not notarized — Gatekeeper will still flag the first launch.</p>
     </div>
     <div class="status-columns">
       <div>
         <h3 class="done">Shipped — Milestones 1–5</h3>
         <ul>
-          <li><strong>Connections</strong> — add, test, save MySQL connections; password in Keychain</li>
+          <li><strong>Connections</strong> — add, test, save connections for MySQL, PostgreSQL, or SQLite; password in Keychain (SQLite is just a file, no credentials needed)</li>
+          <li><strong>Three real database engines</strong>, not a MySQL-only client with the others faked — engine-specific identifier quoting, error translation, and schema browsing (Postgres has no cross-database <code class="mono">USE</code>, so that's handled honestly instead of papered over)</li>
           <li><strong>Query documents &amp; folders</strong> — persistent, tabbed, autosaved</li>
           <li><strong>Snippet library</strong> — folders, create, edit, insert, hover-delete</li>
           <li><strong>SQL syntax highlighting</strong>, plus a custom completion popup: keywords; real table names after <code class="mono">FROM</code>/<code class="mono">JOIN</code>; real column names scoped to the statement's tables once a <code class="mono">FROM</code> exists; and, before one exists, qualified <code class="mono">table.column</code> suggestions across every known table — accepting one inserts the column and appends the matching <code class="mono">FROM</code> clause for you, cursor left exactly where you were typing. Tab-only accept.</li>
-          <li><strong>Last-clicked database as default</strong> — clicking a database in the sidebar runs a real <code class="mono">USE</code>, so unqualified table names resolve without <code class="mono">db.table</code> qualification</li>
+          <li><strong>Last-clicked database as default</strong> (MySQL) — clicking a database in the sidebar runs a real <code class="mono">USE</code>, so unqualified table names resolve without <code class="mono">db.table</code> qualification</li>
           <li><strong>Command palette</strong> (⌘⇧P) and sidebar search, sorted by most-used</li>
           <li><strong>Query history</strong> — searchable, capped, reopenable</li>
           <li><strong>Vapor theme family</strong> — base, Gold, Silver, Carbon Fiber</li>
@@ -257,7 +259,7 @@
           <li><strong>Save query as…</strong> — name and file an unsaved query straight from the editor toolbar, with a folder picker if you have any</li>
           <li><strong>Accurate DML row counts</strong> — INSERT/UPDATE/DELETE show the real affected-row count, not always 0</li>
           <li><strong>Active-statement highlighting</strong> — the editor shows exactly which statement Run/⌘Return will send</li>
-          <li><strong>Friendly error messages</strong> — common MySQL error codes translated to plain English, not raw server text</li>
+          <li><strong>Friendly error messages</strong> — common MySQL and PostgreSQL error codes translated to plain English, not raw server text</li>
           <li><strong>VoiceOver support</strong> — tabs, icon-only buttons, and sidebar rows are properly labeled</li>
           <li><strong>Single-instance guard</strong> — launching a second copy activates the running one instead of running two side by side</li>
           <li><strong>Custom app icon</strong></li>
@@ -267,7 +269,6 @@
       <div>
         <h3 class="wip">Not built yet</h3>
         <ul>
-          <li><strong>MySQL only</strong> — Postgres/SQLite are not on the roadmap yet</li>
           <li><strong>System light/dark appearance</strong> — Vapor is fixed-dark for now, by design, deferred to the very end of the project</li>
         </ul>
       </div>

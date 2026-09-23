@@ -75,12 +75,12 @@ final class MySQLDatabaseConnection: DatabaseConnection {
     }
 
     func listTables(inDatabase database: String) async throws -> [DatabaseTable] {
-        let result = try await execute(sql: "SHOW TABLES FROM `\(database)`")
+        let result = try await execute(sql: "SHOW TABLES FROM \(DatabaseEngine.mysql.quoteIdentifier(database))")
         return result.rows.compactMap { $0.first.map { DatabaseTable(name: $0.displayString) } }
     }
 
     func listColumns(table: String, inDatabase database: String) async throws -> [String] {
-        let result = try await execute(sql: "SHOW COLUMNS FROM `\(database)`.`\(table)`")
+        let result = try await execute(sql: "SHOW COLUMNS FROM \(DatabaseEngine.mysql.quoteIdentifier(database)).\(DatabaseEngine.mysql.quoteIdentifier(table))")
         return result.rows.compactMap { $0.first?.displayString }
     }
 

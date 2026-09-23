@@ -60,6 +60,9 @@ final class SQLEditorViewController: NSViewController {
         completionController.tableNamesProvider = { [weak self] in self?.cachedTableNames ?? [] }
         completionController.columnNamesProvider = { [weak self] tables in self?.columnNames(for: tables) ?? [] }
         completionController.allColumnsProvider = { [weak self] in self?.allCachedColumns() ?? [] }
+        completionController.identifierQuoter = { [weak self] name in
+            (self?.appState.selectedProfile?.engine ?? .mysql).quoteIdentifier(name)
+        }
         bindWorkspace()
     }
 

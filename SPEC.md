@@ -711,3 +711,111 @@ shipping:
   ignoring the Preferences font-size setting entirely; the results grid
   was the one place in the app where changing that setting visibly did
   nothing. Row height in the grid now scales with the chosen size too.
+
+## PostgreSQL and SQLite support added
+
+MySQL was the only engine until now — `DatabaseDriver`/`DatabaseConnection`
+were already engine-agnostic protocols, so adding two more meant new
+driver implementations, not a redesign.
+
+- **`ConnectionProfile` gained `engine: DatabaseEngine`** (mysql/postgres/
+  sqlite) and `filePath` (SQLite only). Decoded via a custom
+  `init(from:)`, not synthesized defaults — a missing `engine`/`filePath`
+  key in an existing `connections.json` (every profile saved before this
+  change) decodes as `.mysql`/`""` explicitly, not a guess about whether
+  Swift's Codable synthesis would fall back correctly. This app already
+  had a real crash-on-launch incident from a saved-data decode assumption
+  once; not repeating that.
+- **`PostgresDriver`** (`PostgresNIO`, same vapor-ecosystem library
+  family as `MySQLNIO`) and **`SQLiteDriver`** (the system's own
+  `libsqlite3` via a raw C module map — `Sources/CSQLite`, a SwiftPM
+  `systemLibrary` target with a hand-written modulemap pointing straight
+  at the SDK's `sqlite3.h`, not `pkgConfig:` — macOS doesn't ship a
+  `sqlite3.pc` file for pkg-config to find even though the SDK always has
+  the header + library, a known pain point; the modulemap route
+  sidesteps it entirely). No new external dependency for SQLite — it
+  ships with macOS already.
+- **`ConnectionManager`** now picks the driver per `profile.engine`
+  instead of hardcoding `MySQLDriver()`. SQLite skips the Keychain
+  password check entirely (no username/password concept).
+- **`NewConnectionWindowController`** gained an engine picker; rows
+  toggle between server fields (host/port/username/password/database)
+  and a single file-path field + "Choose…" panel depending on engine.
+- **Real cross-engine differences, not papered over**:
+  - Postgres has no session-level `USE` — a connection is bound to one
+    database for its lifetime. `AppState.selectDatabase` now only
+    attempts `USE` for MySQL; for Postgres/SQLite it's a no-op (was
+    previously a guaranteed syntax error for Postgres — session USE just
+    doesn't exist there, "switching" means a new connection).
+    `PostgresDriver.listTables`/`listColumns` ignore the `database`
+    parameter and query the connected database's `public` schema
+    directly, documented as such rather than pretending cross-database
+    browsing works.
+  - Identifier quoting is engine-specific: MySQL/SQLite use backticks,
+    Postgres only accepts ANSI double quotes (backtick is a hard syntax
+    error there — hit live: `syntax error at or near "` "`` from a query
+    still using MySQL-style quoting). Centralized as
+    `DatabaseEngine.quoteIdentifier(_:)` and threaded through every call
+    site that builds a qualified identifier: the sidebar's table
+    double-click preview query, the completion popup's auto-inserted
+    `FROM` clause, and `USE`. Found and fixed after the user hit the
+    syntax error live, then audited for the same MySQL-only backtick
+    pattern already existing in `MySQLDriver` itself (inconsistent, not
+    broken — fixed for consistency and because unescaped backticks don't
+    handle a legitimately-backtick-containing name).
+  - `FriendlyError` now translates Postgres errors too, via
+    `PSQLError.serverInfo?[.sqlState]` — the same SQLSTATE-code lookup
+    MySQL gets from its own numeric error codes (access denied, database/
+    table/column not found, deadlock, lock timeout, duplicate entry,
+    syntax error). `isConnectionLost` recognizes Postgres's
+    `.clientClosedConnection`/`.serverClosedConnection` codes too. SQLite
+    errors come through already reasonably readable from
+    `sqlite3_errmsg` — no translation layer added there.
+  - Both new drivers verified against real servers before shipping (a
+    throwaway `postgres:16` Docker container, a real SQLite file) via a
+    temporary standalone executable target exercising the same
+    PostgresNIO/CSQLite API calls the real driver files use — not the
+    literal driver files themselves (SwiftPM target isolation would have
+    needed a bigger restructuring to import them directly from a second
+    executable target), and not the app's own GUI (this environment's
+    accessibility automation is blocked, so end-to-end verification
+    through the actual New Connection dialog needed the user's own
+    testing). The temporary target was deleted after verification.
+
+## A real crash, found by the user, root-caused and fixed
+
+`NewConnectionWindowController.buildUI()` called `updateFieldVisibility()`
+(to hide the file-path row for the non-default engine) before `mainStack`
+— which `updateFieldVisibility()` → `resizeToFitContent()` needs — was
+constructed later in the same function. Implicitly-unwrapped optional,
+so this was a guaranteed crash on every "New Connection" click, not an
+edge case; missed because this environment's accessibility automation
+being blocked meant it was never clicked through interactively before
+shipping. Fixed two ways: the immediate ordering bug, and the underlying
+fragility — `grid`/`mainStack` are real `Optional`s now, not IUO, built
+as locals and only assigned to the stored properties once fully
+constructed, with the two post-construction methods that use them
+guarding against nil instead of force-unwrapping.
+
+## Manual production-readiness pass
+
+Requested after ruling out any existing agent skill as a fit for AppKit
+specifically (checked the curated Swift-Agent-Skills list, a GitHub topic
+search, and two specifically-named candidates — `claude-apple-dev`,
+which claims AppKit but is SwiftUI end to end on inspection, and
+`Axiom`, which explicitly scopes itself to "xOS" — iOS/iPadOS/watchOS/
+tvOS — and calls macOS out as a support *boundary*, not a target). No
+credible AppKit-specific skill exists in the current ecosystem; this was
+a grep+read audit instead. Found and fixed:
+- `PostgresDriver.listColumns` interpolated a table name into a SQL
+  string literal unescaped — a table name containing `'` would break the
+  query (injection-shaped, low practical risk since `table` only ever
+  comes from this driver's own `listTables()` output today, not raw user
+  input, but a real correctness bug regardless).
+- `MySQLDriver.listTables`/`listColumns` still used raw unescaped
+  backtick interpolation instead of the new `quoteIdentifier` helper —
+  the crash-fix section above.
+- The `NewConnectionWindowController` IUO fragility — the crash-fix
+  section above.
+- Postgres/SQLite error messages weren't friendly — the driver-support
+  section above.
