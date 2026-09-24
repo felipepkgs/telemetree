@@ -149,6 +149,13 @@ final class SQLiteDatabaseConnection: DatabaseConnection, @unchecked Sendable {
         "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
+    func activeSessions() async throws -> QueryResult {
+        // No server/session concept for a single local file — the UI
+        // doesn't offer this feature for SQLite at all, but the protocol
+        // conformance still needs a body.
+        .empty
+    }
+
     func close() async {
         await withCheckedContinuation { continuation in
             queue.async {

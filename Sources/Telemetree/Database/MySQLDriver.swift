@@ -92,6 +92,10 @@ final class MySQLDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.count > 4 ? $0[4].displayString : nil }
     }
 
+    func activeSessions() async throws -> QueryResult {
+        try await execute(sql: "SHOW FULL PROCESSLIST")
+    }
+
     func close() async {
         try? await connection.close().get()
         try? await eventLoopGroup.shutdownGracefully()
