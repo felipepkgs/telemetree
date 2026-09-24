@@ -31,6 +31,16 @@ struct DatabaseTable: Identifiable, Hashable {
     let name: String
 }
 
+/// One foreign key constraint on a table — the local column and what it
+/// points at. Powers click-to-navigate in the results grid; only ever
+/// read, never used to build a WHERE clause on its own table, so no
+/// composite-key ordering concern the way primaryKeyColumns has.
+struct ForeignKeyReference: Equatable {
+    let column: String
+    let referencedTable: String
+    let referencedColumn: String
+}
+
 enum DatabaseError: LocalizedError {
     case connectionFailed(String)
     case queryFailed(String)
@@ -64,6 +74,10 @@ protocol DatabaseConnection: AnyObject {
     /// falling back to matching on every column (which could silently
     /// update the wrong row, or several, if any duplicate rows exist).
     func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String]
+    /// This table's foreign key constraints — empty if it has none.
+    /// Powers ⌥-click-to-navigate in the results grid: a FK cell jumps to
+    /// its referenced row in the other table.
+    func foreignKeys(table: String, inDatabase database: String) async throws -> [ForeignKeyReference]
     /// The server's currently active sessions/queries — MySQL's
     /// SHOW FULL PROCESSLIST, Postgres's pg_stat_activity. SQLite has no
     /// server/session concept at all (a single local file), so it just

@@ -37,6 +37,14 @@ final class ResultsGridViewController: NSViewController {
     private var primaryKeyColumnNames: [String] = []
     private var primaryKeyFetchKey: String?
 
+    /// Foreign keys on the current single-source table, keyed by local
+    /// column name — powers ⌥-click-to-navigate. Independent of
+    /// primaryKeyColumnNames: navigating doesn't need a primary key on
+    /// this table, only on knowing which table a column belongs to
+    /// (same editableTable gate cell editing already uses).
+    private var foreignKeysByColumn: [String: ForeignKeyReference] = [:]
+    private var foreignKeyFetchKey: String?
+
     /// Editing is only actually safe once the primary key columns are
     /// both known AND present in the current result set — a SELECT that
     /// leaves out the key column (e.g. `SELECT name FROM users`) can't be
@@ -85,6 +93,8 @@ final class ResultsGridViewController: NSViewController {
         tableView.allowsColumnResizing = true
         tableView.allowsMultipleSelection = true
         tableView.rowHeight = 20
+        tableView.target = self
+        tableView.action = #selector(handleClick)
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Copy Cell", action: #selector(copySelectedCell), keyEquivalent: "")
@@ -216,6 +226,8 @@ final class ResultsGridViewController: NSViewController {
         editableTable = nil
         primaryKeyColumnNames = []
         primaryKeyFetchKey = nil
+        foreignKeysByColumn = [:]
+        foreignKeyFetchKey = nil
 
         guard let state = appState.activeState else {
             apply(.empty)
@@ -269,8 +281,34 @@ final class ResultsGridViewController: NSViewController {
             .sink { [weak self] table in
                 self?.editableTable = table
                 self?.refreshPrimaryKeyIfNeeded()
+                self?.refreshForeignKeysIfNeeded()
             }
             .store(in: &documentCancellables)
+    }
+
+    /// Fetches this table's foreign keys once per (connection, table),
+    /// same caching shape as refreshPrimaryKeyIfNeeded. Doesn't gate on a
+    /// primary key existing — navigating away from a FK cell doesn't
+    /// need one on the table being navigated from.
+    private func refreshForeignKeysIfNeeded() {
+        guard let table = editableTable,
+              let profile = appState.selectedProfile,
+              let connection = appState.connectionManager.connection(for: profile.id) else {
+            foreignKeysByColumn = [:]
+            foreignKeyFetchKey = nil
+            return
+        }
+        let key = "\(profile.id)|\(table)"
+        guard foreignKeyFetchKey != key else { return }
+        foreignKeyFetchKey = key
+        foreignKeysByColumn = [:]
+        Task {
+            let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
+            let foreignKeys = (try? await connection.foreignKeys(table: table, inDatabase: database)) ?? []
+            guard self.editableTable == table else { return }
+            self.foreignKeysByColumn = Dictionary(uniqueKeysWithValues: foreignKeys.map { ($0.column, $0) })
+            self.tableView.reloadData()
+        }
     }
 
     /// Fetches the primary key once per (connection, table) — not on
@@ -466,6 +504,22 @@ final class ResultsGridViewController: NSViewController {
         return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
+    /// ⌥-click on a foreign-key cell jumps to its referenced row. Plain
+    /// clicks (and ⌘-click, which NSTableView already uses for multi-row
+    /// selection) fall through and do nothing extra here — this only acts
+    /// when Option is held, so it never competes with normal selection.
+    @objc private func handleClick() {
+        guard NSEvent.modifierFlags.contains(.option) else { return }
+        let row = tableView.clickedRow
+        let column = tableView.clickedColumn
+        guard row >= 0, row < result.rows.count,
+              column >= 0, column < result.columns.count, column < result.rows[row].count,
+              let reference = foreignKeysByColumn[result.columns[column]] else { return }
+        let value = result.rows[row][column]
+        guard !value.isNull else { return }
+        appState.navigateForeignKey(reference, value: value)
+    }
+
     @objc private func copySelectedCell() {
         let row = tableView.clickedRow >= 0 ? tableView.clickedRow : tableView.selectedRow
         let column = tableView.clickedColumn >= 0 ? tableView.clickedColumn : tableView.selectedColumn
@@ -544,11 +598,16 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
         // Set on every call, not just at creation — a reused cell would
         // otherwise keep whatever font it was first built with even after
         // the size preference changes.
+        let reference = foreignKeysByColumn[result.columns[columnIndex]]
         textField.font = dataFont
         textField.stringValue = value.displayString
-        textField.textColor = value.isNull ? .tertiaryLabelColor : .labelColor
+        textField.textColor = value.isNull ? .tertiaryLabelColor : (reference != nil ? .linkColor : .labelColor)
         textField.isEditable = canEditCurrentResult
-        cell.toolTip = value.displayString
+        if let reference, !value.isNull {
+            cell.toolTip = "\(value.displayString) — ⌥-click to view in \(reference.referencedTable)"
+        } else {
+            cell.toolTip = value.displayString
+        }
         return cell
     }
 }

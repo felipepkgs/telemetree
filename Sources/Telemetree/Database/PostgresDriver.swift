@@ -122,6 +122,23 @@ final class PostgresDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first?.displayString }
     }
 
+    func foreignKeys(table: String, inDatabase database: String) async throws -> [ForeignKeyReference] {
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let result = try await execute(sql: """
+            SELECT kcu.column_name, ccu.table_name AS referenced_table, ccu.column_name AS referenced_column
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+              ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public' AND tc.table_name = '\(escapedTable)'
+            """)
+        return result.rows.compactMap { row in
+            guard row.count >= 3 else { return nil }
+            return ForeignKeyReference(column: row[0].displayString, referencedTable: row[1].displayString, referencedColumn: row[2].displayString)
+        }
+    }
+
     func activeSessions() async throws -> QueryResult {
         try await execute(sql: """
             SELECT pid, usename, client_addr, datname, state, query, query_start

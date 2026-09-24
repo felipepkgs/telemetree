@@ -322,6 +322,18 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Jumps to a foreign key's referenced row (⌥-click on a FK cell in
+    /// the results grid) — reuses the active tab the same way the
+    /// sidebar's table-preview double-click already does, rather than
+    /// always opening a new one.
+    func navigateForeignKey(_ reference: ForeignKeyReference, value: QueryValue) {
+        guard let profileID = activeState?.connectionProfileID,
+              let profile = connectionManager.profiles.first(where: { $0.id == profileID }) else { return }
+        let engine = profile.engine
+        let sql = "SELECT * FROM \(engine.quoteIdentifier(reference.referencedTable)) WHERE \(engine.quoteIdentifier(reference.referencedColumn)) = \(Self.sqlLiteral(value)) LIMIT 100;"
+        runQuery(sql, connectionProfileID: profileID)
+    }
+
     private static func sqlLiteral(_ value: QueryValue) -> String {
         switch value {
         case .null: return "NULL"

@@ -149,6 +149,17 @@ final class SQLiteDatabaseConnection: DatabaseConnection, @unchecked Sendable {
         "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
+    func foreignKeys(table: String, inDatabase database: String) async throws -> [ForeignKeyReference] {
+        let result = try await execute(sql: "PRAGMA foreign_key_list(\(quotedIdentifier(table)))")
+        // Columns: id, seq, table, from, to, on_update, on_delete, match.
+        // `table` (index 2) is the referenced table, `from`/`to` (3/4) are
+        // the local/referenced column names.
+        return result.rows.compactMap { row in
+            guard row.count > 4 else { return nil }
+            return ForeignKeyReference(column: row[3].displayString, referencedTable: row[2].displayString, referencedColumn: row[4].displayString)
+        }
+    }
+
     func activeSessions() async throws -> QueryResult {
         // No server/session concept for a single local file — the UI
         // doesn't offer this feature for SQLite at all, but the protocol

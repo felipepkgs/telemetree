@@ -890,3 +890,43 @@ view, SQL formatter, SSH tunnel, CSV/JSON import wizard.
   `SidebarViewController.swift` (both branches added sibling methods/
   menu items at the same insertion point) — resolved by keeping both
   additions in each file, not by picking one side.
+
+## Foreign key click-to-navigate
+
+Picked as the next phase-two item to pull forward: highest-frequency
+motion when actually browsing data, and a natural extension of the
+schema-introspection pattern `primaryKeyColumns` already established per
+driver.
+
+- `Database/DatabaseDriver.swift` gained `ForeignKeyReference` (column,
+  referencedTable, referencedColumn) and
+  `DatabaseConnection.foreignKeys(table:inDatabase:)`. MySQL reads
+  `information_schema.KEY_COLUMN_USAGE`; Postgres joins
+  `table_constraints`/`key_column_usage`/`constraint_column_usage` scoped
+  to the `public` schema (same schema assumption `listColumns`/
+  `primaryKeyColumns` already make there); SQLite uses `PRAGMA
+  foreign_key_list`, whose `table`/`from`/`to` columns map directly to
+  referencedTable/column/referencedColumn.
+- `ResultsGridViewController` caches `foreignKeysByColumn` per
+  (connection, table) — same shape and same `editableTable` gate as the
+  primary-key cache, but independent of it: navigating away from a FK
+  cell doesn't require a primary key on the table being navigated *from*.
+  A cell whose column is a known FK renders in link color with a tooltip
+  naming the referenced table.
+- **Trigger is ⌥-click, not ⌘-click**: ⌘-click is already bound to
+  NSTableView's native multi-row selection toggle (this grid has
+  `allowsMultipleSelection`) — reusing it for navigation would silently
+  break normal multi-select. Option has no competing meaning in
+  NSTableView, so `tableView.action` (fires on every left click,
+  including modified ones) gates on `NSEvent.modifierFlags.contains(
+  .option)` before doing anything, leaving plain and ⌘-clicks exactly as
+  they were.
+- Navigating calls `AppState.navigateForeignKey`, which builds `SELECT *
+  FROM <referencedTable> WHERE <referencedColumn> = <value> LIMIT 100`
+  and runs it via the existing `runQuery` — the same "reuse the active
+  tab" behavior the sidebar's table double-click preview already uses,
+  not a new always-open-a-new-tab convention.
+- No mouse-cursor affordance (pointing-hand cursor on hover) — would need
+  a custom NSView + tracking area per cell instead of the current plain
+  NSTextField cells; the link-color + tooltip combination was judged
+  enough for discoverability given the added complexity that would take.

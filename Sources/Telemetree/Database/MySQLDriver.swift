@@ -92,6 +92,21 @@ final class MySQLDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.count > 4 ? $0[4].displayString : nil }
     }
 
+    func foreignKeys(table: String, inDatabase database: String) async throws -> [ForeignKeyReference] {
+        let escapedDatabase = database.replacingOccurrences(of: "'", with: "''")
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let result = try await execute(sql: """
+            SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = '\(escapedDatabase)' AND TABLE_NAME = '\(escapedTable)'
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+            """)
+        return result.rows.compactMap { row in
+            guard row.count >= 3, !row[1].isNull, !row[2].isNull else { return nil }
+            return ForeignKeyReference(column: row[0].displayString, referencedTable: row[1].displayString, referencedColumn: row[2].displayString)
+        }
+    }
+
     func activeSessions() async throws -> QueryResult {
         try await execute(sql: "SHOW FULL PROCESSLIST")
     }
