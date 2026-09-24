@@ -42,6 +42,12 @@ final class ConnectionManager: ObservableObject {
         save()
     }
 
+    func setLabelColor(_ profileID: UUID, color: LabelColor?) {
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        profiles[index].labelColor = color
+        save()
+    }
+
     func deleteProfile(_ profile: ConnectionProfile) {
         profiles.removeAll { $0.id == profile.id }
         KeychainManager.deletePassword(for: profile.id)

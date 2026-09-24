@@ -11,6 +11,9 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
     var useSSL: Bool = false
     /// SQLite only — path to the .sqlite/.db file. Unused for other engines.
     var filePath: String = ""
+    /// Sidebar accent color — same LabelColor already used for queries/
+    /// snippets, so a prod connection can't be mistaken for staging.
+    var labelColor: LabelColor?
 
     init(
         id: UUID = UUID(),
@@ -21,7 +24,8 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
         username: String = "",
         database: String = "",
         useSSL: Bool = false,
-        filePath: String = ""
+        filePath: String = "",
+        labelColor: LabelColor? = nil
     ) {
         self.id = id
         self.name = name
@@ -32,10 +36,11 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
         self.database = database
         self.useSSL = useSSL
         self.filePath = filePath
+        self.labelColor = labelColor
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, engine, host, port, username, database, useSSL, filePath
+        case id, name, engine, host, port, username, database, useSSL, filePath, labelColor
     }
 
     // Custom decoder, not relying on synthesized-default behavior for
@@ -55,5 +60,6 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
         database = try container.decodeIfPresent(String.self, forKey: .database) ?? ""
         useSSL = try container.decodeIfPresent(Bool.self, forKey: .useSSL) ?? false
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath) ?? ""
+        labelColor = try container.decodeIfPresent(LabelColor.self, forKey: .labelColor)
     }
 }
