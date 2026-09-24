@@ -29,6 +29,7 @@ final class SidebarViewController: NSViewController {
     private var cancellables = Set<AnyCancellable>()
     private var newConnectionController: NewConnectionWindowController?
     private var snippetEditorControllers: [UUID: SnippetEditorWindowController] = [:]
+    private var sessionMonitorControllers: [UUID: SessionMonitorWindowController] = [:]
 
     private let connectionsHeader = SidebarNode(kind: .sectionHeader("Connections"))
     private let queriesHeader = SidebarNode(kind: .sectionHeader("Queries"))
@@ -491,6 +492,32 @@ final class SidebarViewController: NSViewController {
 
     // MARK: - Context menu actions (queries)
 
+    @objc private func showActiveSessions(_ sender: NSMenuItem) {
+        guard let profile = sender.representedObject as? ConnectionProfile else { return }
+        if let existing = sessionMonitorControllers[profile.id] {
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let controller = SessionMonitorWindowController(appState: appState, profile: profile)
+        sessionMonitorControllers[profile.id] = controller
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: controller.window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.sessionMonitorControllers[profile.id] = nil
+            }
+        }
+
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     @objc private func removeConnection(_ sender: NSMenuItem) {
         guard let profile = sender.representedObject as? ConnectionProfile else { return }
         Task { await appState.connectionManager.disconnect(profile) }
@@ -673,6 +700,10 @@ extension SidebarViewController: NSMenuDelegate {
 
         switch node.kind {
         case .connection(let profile):
+            if profile.engine != .sqlite {
+                menu.addItem(menuItem("Show Active Sessions…", action: #selector(showActiveSessions(_:)), representedObject: profile))
+                menu.addItem(.separator())
+            }
             menu.addItem(menuItem("Remove Connection", action: #selector(removeConnection(_:)), representedObject: profile))
         case .queryDocument(let document):
             menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))

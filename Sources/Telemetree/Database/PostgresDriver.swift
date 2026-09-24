@@ -110,6 +110,14 @@ final class PostgresDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first?.displayString }
     }
 
+    func activeSessions() async throws -> QueryResult {
+        try await execute(sql: """
+            SELECT pid, usename, client_addr, datname, state, query, query_start
+            FROM pg_stat_activity
+            ORDER BY query_start DESC NULLS LAST
+            """)
+    }
+
     func close() async {
         try? await connection.close()
         try? await eventLoopGroup.shutdownGracefully()

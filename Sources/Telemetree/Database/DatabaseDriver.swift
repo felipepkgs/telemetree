@@ -57,6 +57,12 @@ protocol DatabaseConnection: AnyObject {
     func listDatabases() async throws -> [String]
     func listTables(inDatabase database: String) async throws -> [DatabaseTable]
     func listColumns(table: String, inDatabase database: String) async throws -> [String]
+    /// The server's currently active sessions/queries — MySQL's
+    /// SHOW FULL PROCESSLIST, Postgres's pg_stat_activity. SQLite has no
+    /// server/session concept at all (a single local file), so it just
+    /// returns an empty result rather than throwing; the UI gates the
+    /// feature off for SQLite connections instead of calling this at all.
+    func activeSessions() async throws -> QueryResult
     func close() async
 }
 
