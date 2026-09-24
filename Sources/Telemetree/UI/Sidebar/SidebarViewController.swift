@@ -12,6 +12,7 @@ private struct SnippetMoveTarget {
 }
 
 private enum LabelTarget {
+    case connection(UUID)
     case queryDocument(UUID)
     case queryFolder(UUID)
     case snippet(UUID)
@@ -643,6 +644,8 @@ final class SidebarViewController: NSViewController {
     @objc private func setLabelColor(_ sender: NSMenuItem) {
         guard let assignment = sender.representedObject as? LabelAssignment else { return }
         switch assignment.target {
+        case .connection(let id):
+            appState.connectionManager.setLabelColor(id, color: assignment.color)
         case .queryDocument(let id):
             appState.queryStore.setLabelColor(id, color: assignment.color)
         case .queryFolder(let id):
@@ -673,6 +676,10 @@ extension SidebarViewController: NSMenuDelegate {
 
         switch node.kind {
         case .connection(let profile):
+            let labelItem = NSMenuItem(title: "Label", action: nil, keyEquivalent: "")
+            labelItem.submenu = buildLabelMenu(for: .connection(profile.id))
+            menu.addItem(labelItem)
+            menu.addItem(.separator())
             menu.addItem(menuItem("Remove Connection", action: #selector(removeConnection(_:)), representedObject: profile))
         case .queryDocument(let document):
             menu.addItem(menuItem("Rename", action: #selector(renameNode(_:)), representedObject: node))
@@ -978,13 +985,21 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             // Schema browsing has no other way to see a table/database
             // created or dropped elsewhere mid-session short of quitting
             // and relaunching — this re-fetches just that node's children.
+            let hasLabelColor = labelColorValue(for: node.kind) != nil
             cell.onHoverChange = { [weak refreshButton, weak labelDotView, weak dotView] hovering in
                 refreshButton?.isHidden = !hovering
                 if hovering {
                     labelDotView?.isHidden = true
                     dotView?.isHidden = true
-                } else if case .connection = node.kind {
-                    dotView?.isHidden = false
+                } else {
+                    // Restore whichever indicator this row actually
+                    // shows once the hover-only refresh button hides
+                    // again — previously only dotView (connection
+                    // status) did this, so a labeled connection/database
+                    // row's color dot silently vanished for good after
+                    // the first hover.
+                    if hasLabelColor { labelDotView?.isHidden = false }
+                    if case .connection = node.kind { dotView?.isHidden = false }
                 }
             }
             refreshButton.target = self
@@ -1082,6 +1097,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
 
     private func labelColorValue(for kind: SidebarNode.Kind) -> LabelColor? {
         switch kind {
+        case .connection(let profile): return profile.labelColor
         case .queryDocument(let document): return document.labelColor
         case .queryFolder(let folder): return folder.labelColor
         case .snippet(let snippet): return snippet.labelColor
