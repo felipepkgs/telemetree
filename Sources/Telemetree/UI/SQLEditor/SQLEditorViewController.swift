@@ -419,20 +419,20 @@ final class SQLEditorViewController: NSViewController {
         cancelButton.bezelStyle = .rounded
         let buttonRow = NSStackView(views: [cancelButton, saveButton])
         buttonRow.orientation = .horizontal
-        buttonRow.spacing = 8
+        buttonRow.spacing = DesignTokens.spacingSM
 
         let mainStack = NSStackView(views: contentViews + [buttonRow])
         mainStack.orientation = .vertical
         mainStack.alignment = .leading
         mainStack.spacing = 6
-        mainStack.setCustomSpacing(16, after: titleLabel)
-        mainStack.setCustomSpacing(16, after: contentViews.last!)
+        mainStack.setCustomSpacing(DesignTokens.spacingLG, after: titleLabel)
+        mainStack.setCustomSpacing(DesignTokens.spacingLG, after: contentViews.last!)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
         buttonRow.leadingAnchor.constraint(equalTo: mainStack.leadingAnchor).isActive = true
         nameField.widthAnchor.constraint(equalToConstant: 260).isActive = true
         folderPopup?.widthAnchor.constraint(equalToConstant: 260).isActive = true
 
-        let padding: CGFloat = 20
+        let padding = DesignTokens.spacingXL
         let sheetWindow = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
         sheetWindow.contentView?.addSubview(mainStack)
         NSLayoutConstraint.activate([

@@ -24,7 +24,7 @@ final class NewConnectionWindowController: NSWindowController {
     // a plain Optional with a guard just no-ops instead.
     private var grid: NSGridView?
     private var mainStack: NSStackView?
-    private static let windowPadding: CGFloat = 20
+    private static let windowPadding = DesignTokens.spacingXL
     /// Row indices, set once the grid is built — used to toggle
     /// server-style rows (host/port/username/...) vs. the file-path row
     /// depending on the selected engine.
@@ -110,8 +110,8 @@ final class NewConnectionWindowController: NSWindowController {
             [NSGridCell.emptyContentView, sslCheckbox],
             [label("File"), fileRow]
         ])
-        grid.rowSpacing = 8
-        grid.columnSpacing = 8
+        grid.rowSpacing = DesignTokens.spacingSM
+        grid.columnSpacing = DesignTokens.spacingSM
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).width = 200
         grid.translatesAutoresizingMaskIntoConstraints = false
@@ -124,7 +124,7 @@ final class NewConnectionWindowController: NSWindowController {
         let testButton = NSButton(title: "Test Connection", target: self, action: #selector(testConnection))
         let testRow = NSStackView(views: [testButton, progressIndicator, statusLabel])
         testRow.orientation = .horizontal
-        testRow.spacing = 8
+        testRow.spacing = DesignTokens.spacingSM
         testRow.alignment = .centerY
 
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
@@ -132,11 +132,11 @@ final class NewConnectionWindowController: NSWindowController {
         saveButton.keyEquivalent = "\r"
         let buttonRow = NSStackView(views: [cancelButton, saveButton])
         buttonRow.orientation = .horizontal
-        buttonRow.spacing = 8
+        buttonRow.spacing = DesignTokens.spacingSM
 
         let mainStack = NSStackView(views: [grid, testRow, buttonRow])
         mainStack.orientation = .vertical
-        mainStack.spacing = 16
+        mainStack.spacing = DesignTokens.spacingLG
         mainStack.alignment = .trailing
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 

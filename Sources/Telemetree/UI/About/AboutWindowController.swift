@@ -51,20 +51,39 @@ final class AboutWindowController: NSWindowController {
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.setCustomSpacing(14, after: linkButton)
+        stack.setCustomSpacing(DesignTokens.spacingLG, after: linkButton)
 
+        // Explicit constant insets on the pinning constraints, not
+        // NSStackView.edgeInsets — same fix as NewConnectionWindowController
+        // and the Save Query As sheet: edgeInsets on a stack pinned flush
+        // to its container with no constant reads as a no-op in practice,
+        // so this content sat flush against the window edges with zero
+        // visible padding.
+        let padding = DesignTokens.spacingXL
         contentView.addSubview(stack)
         NSLayoutConstraint.activate([
             icon.widthAnchor.constraint(equalToConstant: 64),
             icon.heightAnchor.constraint(equalToConstant: 64),
 
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: padding),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: padding),
+            stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -padding),
+            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -padding)
         ])
+
+        // The window's contentRect was a fixed guess (320x280) from
+        // before this padding existed — content sat flush with no
+        // margin, so it happened to fit. Adding real padding without
+        // resizing to compensate would risk clipping the bottom button
+        // depending on exact label heights. Same resize-to-fit pattern
+        // already proven in NewConnectionWindowController and the Save
+        // Query As sheet, not a guessed fixed size.
+        let fitting = stack.fittingSize
+        window?.setContentSize(NSSize(
+            width: max(320, fitting.width + padding * 2),
+            height: fitting.height + padding * 2
+        ))
     }
 
     @objc private func openIcons8() {

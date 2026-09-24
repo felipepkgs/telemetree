@@ -38,10 +38,10 @@ final class CompletionPopup {
         background.material = .menu
         background.state = .active
         background.wantsLayer = true
-        background.layer?.cornerRadius = 6
+        background.layer?.cornerRadius = DesignTokens.radiusMD
         background.layer?.masksToBounds = true
-        background.layer?.borderWidth = 1
-        background.layer?.borderColor = NSColor.separatorColor.cgColor
+        background.layer?.borderWidth = DesignTokens.borderWidth
+        background.layer?.borderColor = DesignTokens.border.cgColor
 
         stackView.orientation = .vertical
         stackView.alignment = .width
