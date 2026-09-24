@@ -84,6 +84,14 @@ final class MySQLDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first?.displayString }
     }
 
+    func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {
+        let result = try await execute(sql: "SHOW KEYS FROM \(DatabaseEngine.mysql.quoteIdentifier(database)).\(DatabaseEngine.mysql.quoteIdentifier(table)) WHERE Key_name = 'PRIMARY'")
+        // Column_name is the 5th column (index 4); rows already come back
+        // in Seq_in_index order, same as SHOW COLUMNS is already trusted
+        // to return table-definition order elsewhere in this driver.
+        return result.rows.compactMap { $0.count > 4 ? $0[4].displayString : nil }
+    }
+
     func close() async {
         try? await connection.close().get()
         try? await eventLoopGroup.shutdownGracefully()

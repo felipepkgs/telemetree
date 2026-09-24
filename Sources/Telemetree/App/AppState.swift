@@ -187,6 +187,7 @@ final class AppState: ObservableObject {
         state.paginationBaseSQL = paginate ? paginationBase : nil
         state.currentPage = 0
         state.totalRowCount = nil
+        state.editableTable = EditableResultDetector.singleSourceTable(in: sql)
         let runSQL = paginate ? "\(paginationBase) LIMIT \(Self.resultPageSize)" : sql
 
         Task {
@@ -254,6 +255,80 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Commits one inline cell edit from the results grid as a real
+    /// UPDATE, scoped to `whereColumns`/`whereValues` (the row's primary
+    /// key, captured by the caller before the edit — see
+    /// ResultsGridViewController). Deliberately NOT routed through
+    /// executeCurrentSQL: that replaces the grid's displayed result with
+    /// whatever the statement returns, which for an UPDATE would blank
+    /// the currently-shown page with the UPDATE's own (empty) result
+    /// instead of refreshing it.
+    func updateCell(
+        table: String,
+        setColumn: String,
+        oldValue: QueryValue,
+        newValue: QueryValue,
+        whereColumns: [String],
+        whereValues: [QueryValue]
+    ) {
+        guard let state = activeState,
+              let profileID = state.connectionProfileID,
+              let connection = connectionManager.connection(for: profileID),
+              let profile = connectionManager.profiles.first(where: { $0.id == profileID }),
+              !whereColumns.isEmpty else { return }
+        let connectionName = profile.name
+        let engine = profile.engine
+
+        let setClause = "\(engine.quoteIdentifier(setColumn)) = \(Self.sqlLiteral(newValue))"
+        // Primary key columns are never actually NULL in a valid schema,
+        // so a plain `=` (not `IS NULL`) is a safe simplification here.
+        let whereClause = zip(whereColumns, whereValues)
+            .map { "\(engine.quoteIdentifier($0)) = \(Self.sqlLiteral($1))" }
+            .joined(separator: " AND ")
+        let sql = "UPDATE \(engine.quoteIdentifier(table)) SET \(setClause) WHERE \(whereClause)"
+
+        Task {
+            // Same gate executeCurrentSQL uses for a typed UPDATE — a
+            // generated single-row edit can't bypass Touch ID just
+            // because it didn't come from the text editor.
+            if DestructiveSQLGuard.isDestructive(sql) {
+                // Shows the actual old → new value right in the system
+                // auth prompt — the lightweight version of "diff before
+                // commit": you see exactly what's about to change before
+                // authenticating, without a separate diff UI to build.
+                let reason = "change \(setColumn) from \u{201C}\(oldValue.displayString)\u{201D} to \u{201C}\(newValue.displayString)\u{201D}"
+                guard await Self.confirmDestructiveQuery(reason: reason) else {
+                    state.errorMessage = "Cancelled — authentication is required to run this query."
+                    return
+                }
+            }
+            do {
+                _ = try await connection.execute(sql: sql)
+                historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: true, errorMessage: nil)
+                // Refresh whatever's currently on screen instead of
+                // leaving it showing pre-edit data.
+                if state.paginationBaseSQL != nil {
+                    goToPage(state.currentPage)
+                } else {
+                    executeCurrentSQL(state.sql)
+                }
+            } catch {
+                state.errorMessage = error.localizedDescription
+                if case DatabaseError.connectionLost = error {
+                    connectionManager.markDisconnected(profileID)
+                }
+                historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: false, errorMessage: error.localizedDescription)
+            }
+        }
+    }
+
+    private static func sqlLiteral(_ value: QueryValue) -> String {
+        switch value {
+        case .null: return "NULL"
+        case .text(let string): return "'" + string.replacingOccurrences(of: "'", with: "''") + "'"
+        }
+    }
+
     // ponytail: keyword check, not a parser — same tradeoff as
     // DestructiveSQLGuard. A `LIMIT` inside a subquery/CTE falsely
     // suppresses auto-paging of the outer SELECT; acceptable since the
@@ -279,7 +354,7 @@ final class AppState: ObservableObject {
     /// Requires the system password or Touch ID before a destructive
     /// query runs. Fails closed: if device-owner authentication can't be
     /// evaluated at all (no policy available), the query is blocked.
-    private static func confirmDestructiveQuery() async -> Bool {
+    private static func confirmDestructiveQuery(reason: String = "run this query") async -> Bool {
         let context = LAContext()
         var evaluationError: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &evaluationError) else {
@@ -288,7 +363,7 @@ final class AppState: ObservableObject {
         do {
             return try await context.evaluatePolicy(
                 .deviceOwnerAuthentication,
-                localizedReason: "run this query"
+                localizedReason: reason
             )
         } catch {
             return false

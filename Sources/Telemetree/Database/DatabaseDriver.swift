@@ -57,6 +57,13 @@ protocol DatabaseConnection: AnyObject {
     func listDatabases() async throws -> [String]
     func listTables(inDatabase database: String) async throws -> [DatabaseTable]
     func listColumns(table: String, inDatabase database: String) async throws -> [String]
+    /// Primary key column names, in composite-key order — empty if the
+    /// table has none. Used to gate inline cell editing in the results
+    /// grid: without a real primary key there's no safe way to scope an
+    /// UPDATE to exactly one row, so editing stays disabled rather than
+    /// falling back to matching on every column (which could silently
+    /// update the wrong row, or several, if any duplicate rows exist).
+    func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String]
     func close() async
 }
 

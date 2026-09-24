@@ -29,6 +29,23 @@ final class ResultsGridViewController: NSViewController {
     private var totalRowCount: Int?
     private var isExecuting = false
 
+    /// Inline cell editing state — see refreshPrimaryKeyIfNeeded(). Both
+    /// nil/empty means "not editable," the state every result starts in;
+    /// a real primary key has to be confirmed before any cell allows
+    /// editing at all.
+    private var editableTable: String?
+    private var primaryKeyColumnNames: [String] = []
+    private var primaryKeyFetchKey: String?
+
+    /// Editing is only actually safe once the primary key columns are
+    /// both known AND present in the current result set — a SELECT that
+    /// leaves out the key column (e.g. `SELECT name FROM users`) can't be
+    /// scoped to one row no matter how confidently the table itself was
+    /// identified.
+    private var canEditCurrentResult: Bool {
+        !primaryKeyColumnNames.isEmpty && primaryKeyColumnNames.allSatisfy { result.columns.contains($0) }
+    }
+
     /// Above this many pages, individual page-number buttons give way to
     /// a plain "Page X of Y" readout — otherwise a huge table's page bar
     /// would just keep growing forever.
@@ -196,6 +213,9 @@ final class ResultsGridViewController: NSViewController {
 
     private func bindActiveDocument() {
         documentCancellables.removeAll()
+        editableTable = nil
+        primaryKeyColumnNames = []
+        primaryKeyFetchKey = nil
 
         guard let state = appState.activeState else {
             apply(.empty)
@@ -243,6 +263,40 @@ final class ResultsGridViewController: NSViewController {
                 self?.updatePagingUI()
             }
             .store(in: &documentCancellables)
+
+        state.$editableTable
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] table in
+                self?.editableTable = table
+                self?.refreshPrimaryKeyIfNeeded()
+            }
+            .store(in: &documentCancellables)
+    }
+
+    /// Fetches the primary key once per (connection, table) — not on
+    /// every keystroke or page turn, this only needs to run again when
+    /// the editable table itself changes. Empty/no primary key means
+    /// editing stays off for this result (see canEditCurrentResult).
+    private func refreshPrimaryKeyIfNeeded() {
+        guard let table = editableTable,
+              let profile = appState.selectedProfile,
+              let connection = appState.connectionManager.connection(for: profile.id) else {
+            primaryKeyColumnNames = []
+            primaryKeyFetchKey = nil
+            tableView.reloadData()
+            return
+        }
+        let key = "\(profile.id)|\(table)"
+        guard primaryKeyFetchKey != key else { return }
+        primaryKeyFetchKey = key
+        primaryKeyColumnNames = []
+        Task {
+            let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
+            let columns = (try? await connection.primaryKeyColumns(table: table, inDatabase: database)) ?? []
+            guard self.editableTable == table else { return }
+            self.primaryKeyColumnNames = columns
+            self.tableView.reloadData()
+        }
     }
 
     private func apply(_ result: QueryResult) {
@@ -476,6 +530,7 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
             cell.identifier = identifier
             textField = NSTextField(labelWithString: "")
             textField.lineBreakMode = .byTruncatingTail
+            textField.delegate = self
             textField.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(textField)
             cell.textField = textField
@@ -492,7 +547,54 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
         textField.font = dataFont
         textField.stringValue = value.displayString
         textField.textColor = value.isNull ? .tertiaryLabelColor : .labelColor
+        textField.isEditable = canEditCurrentResult
         cell.toolTip = value.displayString
         return cell
+    }
+}
+
+extension ResultsGridViewController: NSTextFieldDelegate {
+    /// Commits an inline cell edit as a real UPDATE, scoped to the row's
+    /// primary key. The field is immediately reverted to its pre-edit
+    /// text rather than optimistically kept — appState.updateCell only
+    /// refreshes the grid on a *confirmed* write (after Touch ID and a
+    /// successful UPDATE), so this avoids ever showing a value that
+    /// wasn't actually saved (auth cancelled, the write failed, etc.)
+    /// without needing separate rollback logic for that case.
+    func controlTextDidEndEditing(_ obj: Notification) {
+        guard let control = obj.object as? NSTextField else { return }
+        let row = tableView.row(for: control)
+        let column = tableView.column(for: control)
+        guard canEditCurrentResult, let table = editableTable,
+              row >= 0, row < result.rows.count,
+              column >= 0, column < result.columns.count,
+              column < result.rows[row].count else { return }
+
+        let oldValue = result.rows[row][column]
+        // The grid already renders NULL cells as the literal text "NULL"
+        // (see the textColor/tertiaryLabelColor line above) — typing that
+        // same literal back is how you set a cell to NULL, consistent
+        // with how it's already displayed rather than a separate control.
+        let newText = control.stringValue
+        let newValue: QueryValue = newText == "NULL" ? .null : .text(newText)
+        control.stringValue = oldValue.displayString
+        guard newValue != oldValue else { return }
+
+        var whereColumns: [String] = []
+        var whereValues: [QueryValue] = []
+        for pkColumn in primaryKeyColumnNames {
+            guard let pkIndex = result.columns.firstIndex(of: pkColumn) else { return }
+            whereColumns.append(pkColumn)
+            whereValues.append(result.rows[row][pkIndex])
+        }
+
+        appState.updateCell(
+            table: table,
+            setColumn: result.columns[column],
+            oldValue: oldValue,
+            newValue: newValue,
+            whereColumns: whereColumns,
+            whereValues: whereValues
+        )
     }
 }
