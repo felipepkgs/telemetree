@@ -819,3 +819,74 @@ a grep+read audit instead. Found and fixed:
   section above.
 - Postgres/SQLite error messages weren't friendly — the driver-support
   section above.
+
+## Phase-one round: styling pass, inline cell editing, connection labels, session monitor
+
+Four features, prioritized after a competitor scan (TablePlus, DataGrip,
+DBeaver, Sequel Ace, Postico, Beekeeper Studio, pgAdmin) and built in
+parallel via isolated worktree agents, reviewed and merged one at a time.
+Explicitly declined: a single "Run All Statements" action. Deferred to a
+later phase: FK click-to-navigate, column-header live filter, EXPLAIN tree
+view, SQL formatter, SSH tunnel, CSV/JSON import wizard.
+
+- **Visual polish pass**: `UI/DesignTokens.swift` — a small spacing (4/8/
+  12/16/20) and corner-radius (4/6) scale plus a semantic `border` color,
+  inspired by shadcn/ui's token approach but scoped to layout/spacing only
+  — doesn't touch `Theme.swift` or the Vapor family's own palette. Applied
+  to `AboutWindowController`'s padding; that surfaced a real clipping risk
+  (padding added with no resize compensation on a fixed-size window),
+  fixed with the same `fittingSize`-based resize-to-fit pattern already
+  used elsewhere in the app.
+- **Inline cell editing**: double-clicking a cell in the results grid now
+  edits it in place, gated by `Database/EditableResultDetector` (regex
+  single-table-SELECT check) and each driver's new
+  `primaryKeyColumns(table:inDatabase:)` — no real primary key, no
+  editing, since there'd be no safe way to scope the UPDATE to one row.
+  `AppState.updateCell(table:setColumn:oldValue:newValue:whereColumns:
+  whereValues:)` runs the UPDATE as its own statement (never routed
+  through `executeCurrentSQL`, which replaces the whole displayed
+  `QueryResult`) and refreshes via the existing `goToPage` path.
+  `AppState.confirmDestructiveQuery` gained a `reason: String` parameter
+  (was hardcoded) so the Touch ID prompt can show the specific
+  old → new value being written — a lightweight "diff before commit,"
+  shown in the prompt text itself rather than a separate diff UI.
+  `ResultsGridViewController.controlTextDidEndEditing` always reverts the
+  cell to its pre-edit text immediately; the grid never shows an
+  unconfirmed value.
+- **Connection color labels**: `ConnectionProfile` gained
+  `labelColor: LabelColor?`, threaded through the existing custom
+  `init(from:)` decoder pattern (`decodeIfPresent(...) ?? default` — this
+  app had a real crash-on-launch from a decode assumption once, so every
+  new field follows this). `ConnectionManager.setLabelColor` mirrors
+  `QueryStore.setLabelColor`. `SidebarViewController`'s `LabelTarget` enum
+  gained a `.connection(UUID)` case and its own submenu, using the same
+  8-color palette and rendering slot queries/snippets/folders already had
+  — connections were the one row kind that couldn't be labeled before
+  this.
+- **Session / activity monitor**: `DatabaseConnection.activeSessions()
+  async throws -> QueryResult` — `SHOW FULL PROCESSLIST` for MySQL,
+  `pg_stat_activity` for Postgres; SQLite has no server/session concept
+  at all, so the sidebar gates the menu item off for SQLite connections
+  rather than calling a method that would just return empty.
+  `UI/SessionMonitor/SessionMonitorWindowController` mirrors
+  `QueryHistoryWindowController`'s shape: columns rebuilt dynamically from
+  the returned `QueryResult` (server-specific, not fixed), a 2.5s
+  `Timer.scheduledTimer` while the window is open (invalidated via
+  `NSWindow.willCloseNotification`), plus a manual "Refresh Now" button.
+  Opened via a connection's "Show Active Sessions…" context-menu item,
+  singleton-per-connection like the snippet editor windows.
+- **Found and fixed while merging**: a labelDotView hover-restore bug —
+  hiding the color dot on hover-in but never un-hiding it on hover-out,
+  so a labeled row's dot vanished for good after the first hover. Found
+  by the color-coding agent in its own new code path (the connection/
+  database refresh-button hover) and fixed there; the same bug already
+  existed in a separate, older path (the trash-icon hover for queries/
+  snippets/folders) — correctly left alone by that agent as out of its
+  scope, then fixed the same way as a small separate follow-up.
+- All four features merged into `master` via sequential `git merge` per
+  worktree branch; the session-monitor branch conflicted with the
+  cell-editing and color-coding branches on `DatabaseDriver.swift`,
+  `MySQLDriver.swift`, `PostgresDriver.swift`, and
+  `SidebarViewController.swift` (both branches added sibling methods/
+  menu items at the same insertion point) — resolved by keeping both
+  additions in each file, not by picking one side.
