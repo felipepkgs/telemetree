@@ -22,6 +22,12 @@ final class OpenDocumentState: ObservableObject {
     /// current result isn't paginated at all).
     @Published var totalRowCount: Int?
 
+    /// The single source table for the currently-displayed SELECT result,
+    /// when EditableResultDetector could identify exactly one — nil for
+    /// anything else (a JOIN, DML, a multi-statement buffer, no result
+    /// yet). Drives whether the results grid offers inline cell editing.
+    @Published var editableTable: String?
+
     init(document: QueryDocument) {
         self.documentID = document.id
         self.sql = document.sql

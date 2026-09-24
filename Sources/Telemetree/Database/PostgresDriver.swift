@@ -110,6 +110,18 @@ final class PostgresDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first?.displayString }
     }
 
+    func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let result = try await execute(sql: """
+            SELECT kcu.column_name FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = 'public' AND tc.table_name = '\(escapedTable)'
+            ORDER BY kcu.ordinal_position
+            """)
+        return result.rows.compactMap { $0.first?.displayString }
+    }
+
     func close() async {
         try? await connection.close()
         try? await eventLoopGroup.shutdownGracefully()

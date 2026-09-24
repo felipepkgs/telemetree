@@ -126,6 +126,21 @@ final class SQLiteDatabaseConnection: DatabaseConnection, @unchecked Sendable {
         return result.rows.compactMap { $0.count > 1 ? $0[1].displayString : nil }
     }
 
+    func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {
+        let result = try await execute(sql: "PRAGMA table_info(\(quotedIdentifier(table)))")
+        // Columns: cid, name, type, notnull, dflt_value, pk. `pk` (index 5)
+        // is 0 for a non-key column, otherwise its 1-based position within
+        // a composite primary key — sort on that instead of row order to
+        // get a composite key back in the right order.
+        return result.rows
+            .compactMap { row -> (Int, String)? in
+                guard row.count > 5, let pk = Int(row[5].displayString), pk > 0 else { return nil }
+                return (pk, row[1].displayString)
+            }
+            .sorted { $0.0 < $1.0 }
+            .map { $0.1 }
+    }
+
     /// PRAGMA doesn't accept bound parameters for its target name, so the
     /// identifier is inlined directly — quoted with doubled internal
     /// quotes (SQLite's standard identifier-escaping rule) rather than
