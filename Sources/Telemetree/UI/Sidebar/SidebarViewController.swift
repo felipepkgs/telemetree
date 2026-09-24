@@ -1002,9 +1002,18 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         }
 
         if let deleteAction = deleteAction(for: node) {
+            let hasLabelColor = labelColorValue(for: node.kind) != nil
             cell.onHoverChange = { [weak trashButton, weak labelDotView] hovering in
                 trashButton?.isHidden = !hovering
-                if hovering { labelDotView?.isHidden = true }
+                if hovering {
+                    labelDotView?.isHidden = true
+                } else if hasLabelColor {
+                    // Same fix as the connection/database refresh-button
+                    // branch below: without restoring this, a labeled
+                    // query/snippet/folder's color dot vanished for good
+                    // after the first hover.
+                    labelDotView?.isHidden = false
+                }
             }
             trashButton.target = self
             trashButton.action = #selector(self.trashButtonTapped(_:))
