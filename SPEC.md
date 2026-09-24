@@ -930,3 +930,21 @@ driver.
   a custom NSView + tracking area per cell instead of the current plain
   NSTextField cells; the link-color + tooltip combination was judged
   enough for discoverability given the added complexity that would take.
+- **Found live, in the user's first real test**: link-color + tooltip
+  alone wasn't discoverable — a real user saw the blue cell and still
+  didn't know ⌥-click was the gesture. Fixed by spelling it out in the
+  results grid's status-bar row-count label whenever the current result
+  has at least one FK column ("42 row(s) · 🔗 ⌥-click a blue cell to
+  follow its foreign key") — the one label that's always on screen,
+  instead of relying on a hover tooltip nobody's guaranteed to find.
+  The 🔗 is the bundled Icons8 "SF Black" `link` glyph
+  (`Resources/Icons/link.png`, `AppIcon.link`), not a literal emoji
+  character — matches the rest of the icon set's weight, and a plain
+  `NSTextField.stringValue` emoji wouldn't have picked up dark-mode
+  tinting anyway. Since a template `NSImage` dropped into an
+  `NSAttributedString` via `NSTextAttachment` draws flat black (template
+  tinting is a control-level behavior, e.g. `NSButton.contentTintColor`,
+  not something `NSAttributedString` attachments get automatically), the
+  glyph is pre-tinted to `.secondaryLabelColor` with a manual
+  lock-focus/`sourceAtop` composite before being attached — otherwise
+  it'd have rendered invisible-black against this app's dark chrome.

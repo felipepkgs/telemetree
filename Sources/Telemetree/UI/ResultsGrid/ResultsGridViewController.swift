@@ -308,6 +308,7 @@ final class ResultsGridViewController: NSViewController {
             guard self.editableTable == table else { return }
             self.foreignKeysByColumn = Dictionary(uniqueKeysWithValues: foreignKeys.map { ($0.column, $0) })
             self.tableView.reloadData()
+            self.updatePagingUI()
         }
     }
 
@@ -371,14 +372,61 @@ final class ResultsGridViewController: NSViewController {
     /// (row count, pagination on/off, current page, total, in-flight),
     /// so this is called from every publisher that touches any of them
     /// rather than splitting the logic across each individual sink.
+    /// Appended to the row-count label whenever the current result has at
+    /// least one foreign-key column — the blue cell color alone wasn't
+    /// discoverable enough (a real user saw the blue text and still didn't
+    /// know Option-click was the gesture), so this spells it out in the
+    /// one status-bar label that's always on screen instead of relying on
+    /// a hover tooltip nobody's guaranteed to find.
+    /// Sets the row-count label, appending the FK hint (bundled Icons8
+    /// link glyph, tinted to match the label's own color — a template
+    /// NSImage dropped into an NSAttributedString via NSTextAttachment
+    /// draws as flat black otherwise, invisible against this app's
+    /// fixed-dark chrome) whenever the current result has at least one
+    /// foreign-key column. Spelled out in the one status-bar label
+    /// that's always on screen, not just a hover tooltip — the blue cell
+    /// color alone wasn't discoverable enough on its own.
+    private func setStatusText(_ base: String) {
+        guard !foreignKeysByColumn.isEmpty else {
+            statusLabel.stringValue = base
+            return
+        }
+        let font = statusLabel.font ?? FontLibrary.sans(11)
+        let color = NSColor.secondaryLabelColor
+        let text = NSMutableAttributedString(
+            string: base + "  ",
+            attributes: [.font: font, .foregroundColor: color]
+        )
+        let attachment = NSTextAttachment()
+        attachment.image = Self.tinted(AppIcon.link.image, color: color)
+        attachment.bounds = CGRect(x: 0, y: -1.5, width: 11, height: 11)
+        text.append(NSAttributedString(attachment: attachment))
+        text.append(NSAttributedString(
+            string: " ⌥-click a blue cell to follow its foreign key",
+            attributes: [.font: font, .foregroundColor: color]
+        ))
+        statusLabel.attributedStringValue = text
+    }
+
+    private static func tinted(_ image: NSImage, color: NSColor) -> NSImage {
+        let tinted = NSImage(size: image.size)
+        tinted.lockFocus()
+        color.set()
+        let rect = NSRect(origin: .zero, size: image.size)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        rect.fill(using: .sourceAtop)
+        tinted.unlockFocus()
+        return tinted
+    }
+
     private func updatePagingUI() {
         guard isPaginated else {
-            statusLabel.stringValue = "\(result.rows.count) row(s)"
+            setStatusText("\(result.rows.count) row(s)")
             pageButtonsStack.isHidden = true
             return
         }
         guard let total = totalRowCount else {
-            statusLabel.stringValue = "\(result.rows.count) row(s) — counting total…"
+            setStatusText("\(result.rows.count) row(s) — counting total…")
             pageButtonsStack.isHidden = true
             return
         }
@@ -386,7 +434,7 @@ final class ResultsGridViewController: NSViewController {
         // exactly which rows you're looking at, not just a page ordinal.
         let startRow = currentPage * AppState.resultPageSize + 1
         let endRow = result.rows.isEmpty ? startRow : startRow + result.rows.count - 1
-        statusLabel.stringValue = "\(startRow)-\(endRow) of \(total)"
+        setStatusText("\(startRow)-\(endRow) of \(total)")
         let totalPages = max(1, Int(ceil(Double(total) / Double(AppState.resultPageSize))))
         pageButtonsStack.isHidden = totalPages <= 1
         rebuildPageButtons(totalPages: totalPages)
