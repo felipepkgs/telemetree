@@ -50,12 +50,6 @@ final class MainWindowController: NSWindowController {
         appState.closeDocument(documentID)
     }
 
-    @objc func selectTheme(_ sender: NSMenuItem) {
-        guard let themeID = sender.representedObject as? String,
-              let theme = Theme.all.first(where: { $0.id == themeID }) else { return }
-        appState.themeStore.select(theme)
-    }
-
     @objc func focusGlobalSearch(_ sender: Any?) {
         sidebarVC.focusSearch()
     }
@@ -85,9 +79,6 @@ final class MainWindowController: NSWindowController {
 
 extension MainWindowController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if let themeID = menuItem.representedObject as? String {
-            menuItem.state = (appState.themeStore.current.id == themeID) ? .on : .off
-        }
         if menuItem.action == #selector(selectDocumentTab(_:)) {
             return menuItem.tag - 1 < appState.openDocumentIDs.count
         }

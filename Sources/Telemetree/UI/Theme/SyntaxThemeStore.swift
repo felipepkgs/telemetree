@@ -8,7 +8,7 @@ final class SyntaxThemeStore: ObservableObject {
 
     init() {
         let savedID = UserDefaults.standard.string(forKey: defaultsKey)
-        current = SyntaxTheme.all.first { $0.id == savedID } ?? .default
+        current = SyntaxTheme.all.first { $0.id == savedID } ?? .githubDark
     }
 
     func select(_ theme: SyntaxTheme) {

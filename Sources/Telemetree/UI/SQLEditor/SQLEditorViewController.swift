@@ -12,6 +12,8 @@ final class SQLEditorViewController: NSViewController {
     private let titleLabel = NSTextField(labelWithString: "")
     private let runButton = NSButton(title: "Run", target: nil, action: nil)
     private let saveAsButton = NSButton(title: "Save As…", target: nil, action: nil)
+    private let formatButton = NSButton(title: "Format", target: nil, action: nil)
+    private let inspectButton = NSButton(title: "Structure", target: nil, action: nil)
     private let progressIndicator = NSProgressIndicator()
     private let syntaxHighlighter = SQLSyntaxHighlighter()
     private let toolbar = NSView()
@@ -33,6 +35,7 @@ final class SQLEditorViewController: NSViewController {
     // you've since switched away from.
     private var cachedTableNames: [String] = []
     private var cachedTablesKey: String?
+    private var cachedTablesLoaded = false
 
     // Column names are fetched per table, on demand — unlike table names,
     // there's no fixed small set to warm ahead of time, so this fills in
@@ -81,6 +84,18 @@ final class SQLEditorViewController: NSViewController {
         saveAsButton.action = #selector(saveAs)
         saveAsButton.translatesAutoresizingMaskIntoConstraints = false
 
+        formatButton.bezelStyle = .rounded
+        formatButton.target = self
+        formatButton.action = #selector(formatSQL)
+        formatButton.toolTip = "Format the selected SQL or statement under the caret"
+        formatButton.translatesAutoresizingMaskIntoConstraints = false
+
+        inspectButton.bezelStyle = .rounded
+        inspectButton.target = self
+        inspectButton.action = #selector(inspectTableAtCaret)
+        inspectButton.toolTip = "Show columns for the table under the caret"
+        inspectButton.translatesAutoresizingMaskIntoConstraints = false
+
         progressIndicator.style = .spinning
         progressIndicator.controlSize = .small
         progressIndicator.isDisplayedWhenStopped = false
@@ -94,6 +109,8 @@ final class SQLEditorViewController: NSViewController {
         toolbar.wantsLayer = true
         toolbar.addSubview(titleLabel)
         toolbar.addSubview(saveAsButton)
+        toolbar.addSubview(formatButton)
+        toolbar.addSubview(inspectButton)
         toolbar.addSubview(progressIndicator)
         toolbar.addSubview(runButton)
 
@@ -153,6 +170,12 @@ final class SQLEditorViewController: NSViewController {
             saveAsButton.trailingAnchor.constraint(equalTo: progressIndicator.leadingAnchor, constant: -8),
             saveAsButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
 
+            formatButton.trailingAnchor.constraint(equalTo: saveAsButton.leadingAnchor, constant: -8),
+            formatButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+
+            inspectButton.trailingAnchor.constraint(equalTo: formatButton.leadingAnchor, constant: -8),
+            inspectButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+
             divider.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -200,11 +223,6 @@ final class SQLEditorViewController: NSViewController {
 
         applyFontAndSyntaxTheme(appState.syntaxThemeStore.current)
 
-        appState.insertRequests
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] sql in self?.insertSnippet(sql) }
-            .store(in: &appCancellables)
-
         bindActiveDocument()
     }
 
@@ -213,13 +231,6 @@ final class SQLEditorViewController: NSViewController {
         textView.font = font
         syntaxHighlighter.font = font
         syntaxHighlighter.theme = syntaxTheme
-        applyHighlighting()
-    }
-
-    private func insertSnippet(_ sql: String) {
-        guard textView.isEditable else { return }
-        textView.insertText(sql, replacementRange: textView.selectedRange())
-        appState.updateActiveSQL(textView.string)
         applyHighlighting()
     }
 
@@ -284,35 +295,49 @@ final class SQLEditorViewController: NSViewController {
 
     private func refreshTableNamesIfNeeded() {
         guard let profile = appState.selectedProfile,
-              let connection = appState.connectionManager.connection(for: profile.id) else { return }
+              let connection = appState.connectionManager.connection(for: profile.id) else {
+            cachedTablesKey = nil
+            cachedTablesLoaded = false
+            cachedTableNames = []
+            cachedColumnsByTable.removeAll()
+            pendingColumnFetches.removeAll()
+            applyHighlighting()
+            return
+        }
         let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
         let key = "\(profile.id)|\(database)"
         guard cachedTablesKey != key else { return }
         cachedTablesKey = key
+        cachedTablesLoaded = false
+        cachedTableNames = []
         // Column names are scoped to a specific table within a specific
         // database — once the database changes, anything cached under the
         // old one is stale (a same-named table there could have different
         // columns, or not exist at all).
         cachedColumnsByTable.removeAll()
         Task {
-            let tables = (try? await connection.listTables(inDatabase: database))?.map(\.name) ?? []
-            guard appState.selectedProfile?.id == profile.id,
-                  (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
-            cachedTableNames = tables
-            // Warms the pre-FROM qualified-column suggestions (see
-            // allCachedColumns) ahead of time rather than only after the
-            // user has already referenced a table once. Deliberately
-            // sequential (one SHOW COLUMNS at a time, awaited in this
-            // same loop) rather than firing them all concurrently — this
-            // is a single MySQL connection, not a pool, and the wire
-            // protocol expects one request in flight at a time.
-            for table in tables {
-                let key = table.lowercased()
-                guard cachedColumnsByTable[key] == nil else { continue }
-                let columns = (try? await connection.listColumns(table: table, inDatabase: database)) ?? []
+            do {
+                let tables = try await connection.listTables(inDatabase: database).map(\.name)
                 guard appState.selectedProfile?.id == profile.id,
                       (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
-                cachedColumnsByTable[key] = columns
+                cachedTableNames = tables
+                cachedTablesLoaded = true
+                // Warm the cache sequentially because drivers share one
+                // connection and issue one request at a time.
+                for table in tables {
+                    let tableKey = table.lowercased()
+                    guard cachedColumnsByTable[tableKey] == nil else { continue }
+                    let columns = (try? await connection.listColumns(table: table, inDatabase: database)) ?? []
+                    guard appState.selectedProfile?.id == profile.id,
+                          (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
+                    cachedColumnsByTable[tableKey] = columns
+                }
+                applyHighlighting()
+            } catch {
+                guard cachedTablesKey == key else { return }
+                cachedTableNames = []
+                cachedTablesLoaded = false
+                applyHighlighting()
             }
         }
     }
@@ -369,6 +394,60 @@ final class SQLEditorViewController: NSViewController {
 
     @objc private func run() {
         appState.executeCurrentSQL(currentExecutionTarget())
+    }
+
+    @objc private func formatSQL() {
+        let selection = textView.selectedRange()
+        let range = selection.length > 0
+            ? selection
+            : SQLStatementLocator.statement(containing: selection.location, in: textView.string)?.range
+                ?? NSRange(location: 0, length: (textView.string as NSString).length)
+        guard range.length > 0 else { return }
+        let source = (textView.string as NSString).substring(with: range)
+        textView.insertText(SQLFormatter.format(source), replacementRange: range)
+    }
+
+    @objc private func inspectTableAtCaret() {
+        let source = textView.string as NSString
+        let selection = textView.selectedRange()
+        guard source.length > 0 else { return }
+        var cursor = min(selection.location, source.length - 1)
+        if selection.length > 0 { cursor = selection.location }
+        func isIdentifierCharacter(_ index: Int) -> Bool {
+            guard index >= 0, index < source.length else { return false }
+            let value = source.character(at: index)
+            return value == 95 || (value >= 48 && value <= 57) || (value >= 65 && value <= 90) || (value >= 97 && value <= 122)
+        }
+        guard isIdentifierCharacter(cursor) else { return }
+        var start = cursor
+        var end = cursor + 1
+        while isIdentifierCharacter(start - 1) { start -= 1 }
+        while isIdentifierCharacter(end) { end += 1 }
+        let table = source.substring(with: NSRange(location: start, length: end - start))
+        guard let profile = appState.selectedProfile,
+              let connection = appState.connectionManager.connection(for: profile.id) else {
+            showStructure(message: "Connect to a database first.", table: table)
+            return
+        }
+        let database = profile.engine == .postgres
+            ? "public"
+            : (appState.connectionManager.currentDatabases[profile.id] ?? profile.database)
+        Task {
+            do {
+                let columns = try await connection.listColumns(table: table, inDatabase: database)
+                showStructure(message: columns.isEmpty ? "No columns found." : columns.joined(separator: "\n"), table: table)
+            } catch {
+                showStructure(message: error.localizedDescription, table: table)
+            }
+        }
+    }
+
+    private func showStructure(message: String, table: String) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Structure: \(table)"
+        alert.informativeText = message
+        alert.beginSheetModal(for: window)
     }
 
     /// Kept alive for the duration of the sheet — NSWindowController
@@ -495,7 +574,35 @@ final class SQLEditorViewController: NSViewController {
     private func applyHighlighting() {
         guard let textStorage = textView.textStorage else { return }
         syntaxHighlighter.highlight(textStorage)
+        updateSchemaDiagnostics()
         updateStatementHighlight()
+    }
+
+    private static let cteNameRegex = try! NSRegularExpression(
+        pattern: #"\bWITH\s+(?:RECURSIVE\s+)?`?([A-Za-z_][A-Za-z0-9_]*)`?\s+AS\s*\("#,
+        options: .caseInsensitive
+    )
+
+    private func updateSchemaDiagnostics() {
+        guard let textStorage = textView.textStorage else { return }
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        textStorage.removeAttribute(.underlineStyle, range: fullRange)
+        textStorage.removeAttribute(.underlineColor, range: fullRange)
+        guard cachedTablesLoaded else { return }
+
+        let sql = textView.string
+        let masked = SQLStatementLocator.maskingLiteralsAndComments(in: sql)
+        let cteMatches = Self.cteNameRegex.matches(in: masked, range: NSRange(location: 0, length: (masked as NSString).length))
+        let source = sql as NSString
+        let cteNames = Set(cteMatches.map { source.substring(with: $0.range(at: 1)).lowercased() })
+        let knownTables = Set(cachedTableNames.map { $0.lowercased() })
+        for reference in SQLCompletionController.tableReferences(in: sql)
+        where !reference.qualified && !knownTables.contains(reference.name.lowercased()) && !cteNames.contains(reference.name.lowercased()) {
+            textStorage.addAttributes([
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+                .underlineColor: NSColor.systemOrange
+            ], range: reference.range)
+        }
     }
 
     /// Shows which statement Run would send by tinting its background —
@@ -536,7 +643,7 @@ final class SQLEditorViewController: NSViewController {
     }
 
     private func applyTheme(_ theme: Theme) {
-        toolbar.layer?.backgroundColor = theme.barFillPaint.cgColor
+        toolbar.layer?.backgroundColor = theme.barFill.cgColor
         toolbar.layer?.borderColor = theme.barBorder.cgColor
         toolbar.layer?.borderWidth = 1
     }
@@ -550,6 +657,7 @@ extension SQLEditorViewController: NSTextViewDelegate {
 
         appState.updateActiveSQL(textView.string)
         completionController.textDidChange()
+        updateSchemaDiagnostics()
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {

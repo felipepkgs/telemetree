@@ -6,19 +6,16 @@ import LocalAuthentication
 final class AppState: ObservableObject {
     let connectionManager = ConnectionManager()
     let queryStore = QueryStore()
-    let snippetStore = SnippetStore()
     let themeStore = ThemeStore()
     let syntaxThemeStore = SyntaxThemeStore()
     let fontPreferences = FontPreferencesStore()
     let historyStore = QueryHistoryStore()
 
-    /// One-shot "insert this SQL at the caret" events for the active
-    /// editor — not @Published state, since it's a fire-and-forget
-    /// request, not something with a persistent value to hold.
-    let insertRequests = PassthroughSubject<String, Never>()
 
     @Published private(set) var openDocumentIDs: [UUID] = []
     @Published private(set) var activeDocumentID: UUID?
+    @Published private(set) var pendingDatabases: [UUID: String] = [:]
+    @Published private(set) var databaseSwitchErrors: [UUID: String] = [:]
 
     private var openStates: [UUID: OpenDocumentState] = [:]
     private let workspaceURL: URL
@@ -58,6 +55,11 @@ final class AppState: ObservableObject {
         return connectionManager.profiles.first { $0.id == id }
     }
 
+    func selectAppearance(_ theme: Theme) {
+        themeStore.select(theme)
+        syntaxThemeStore.select(theme.id == Theme.light.id ? .githubLight : .githubDark)
+    }
+
     // MARK: - Workspace actions
 
     @discardableResult
@@ -95,10 +97,11 @@ final class AppState: ObservableObject {
 
     /// Used when the schema browser wants to drop a SELECT into the editor:
     /// targets the active document, opening a scratch one if nothing is open.
-    func runQuery(_ sql: String, connectionProfileID: UUID) {
+    func runQuery(_ sql: String, connectionProfileID: UUID, tableBrowseContext: TableBrowseContext? = nil) {
         let documentID = activeDocumentID ?? newDocument(connectionProfileID: connectionProfileID).id
         guard let state = state(for: documentID) else { return }
         state.connectionProfileID = connectionProfileID
+        state.tableBrowseContext = tableBrowseContext
         state.sql = sql
         queryStore.setConnection(documentID, connectionProfileID: connectionProfileID)
         queryStore.updateSQL(documentID, sql: sql)
@@ -110,15 +113,58 @@ final class AppState: ObservableObject {
         executeCurrentSQL()
     }
 
+    func browseTable(profile: ConnectionProfile, database: String, table: String) {
+        let context = TableBrowseContext(profileID: profile.id, database: database, table: table)
+        runQuery(Self.tableBrowserSQL(context, engine: profile.engine), connectionProfileID: profile.id, tableBrowseContext: context)
+    }
+
+    func updateTableBrowse(_ context: TableBrowseContext) {
+        guard let profile = connectionManager.profiles.first(where: { $0.id == context.profileID }) else { return }
+        runQuery(Self.tableBrowserSQL(context, engine: profile.engine), connectionProfileID: profile.id, tableBrowseContext: context)
+    }
+
+    private static func tableBrowserSQL(_ context: TableBrowseContext, engine: DatabaseEngine) -> String {
+        let table = engine.quoteIdentifier(context.table)
+        let qualifiedTable: String
+        switch engine {
+        case .mysql:
+            qualifiedTable = "\(engine.quoteIdentifier(context.database)).\(table)"
+        case .postgres:
+            qualifiedTable = "\(engine.quoteIdentifier("public")).\(table)"
+        case .sqlite:
+            qualifiedTable = table
+        }
+
+        var sql = "SELECT * FROM \(qualifiedTable)"
+        if !context.filters.isEmpty {
+            let predicates = context.filters.map { filter -> String in
+                let column = engine.quoteIdentifier(filter.column)
+                if filter.value.isNull {
+                    return "\(column) IS \(filter.excluded ? "NOT " : "")NULL"
+                }
+                guard case .text(let value) = filter.value else { return "1 = 1" }
+                let hex = Data(value.utf8).map { String(format: "%02X", $0) }.joined()
+                let literal: String
+                switch engine {
+                case .mysql: literal = "CONVERT(X'\(hex)' USING utf8mb4)"
+                case .postgres: literal = "convert_from(decode('\(hex)', 'hex'), 'UTF8')"
+                case .sqlite: literal = "CAST(X'\(hex)' AS TEXT)"
+                }
+                return "\(column) \(filter.excluded ? "<>" : "=") \(literal)"
+            }
+            sql += " WHERE " + predicates.joined(separator: " AND ")
+        }
+        if let sortColumn = context.sortColumn {
+            sql += " ORDER BY \(engine.quoteIdentifier(sortColumn)) \(context.sortAscending ? "ASC" : "DESC")"
+        }
+        return sql
+    }
+
     func setActiveConnection(_ connectionProfileID: UUID) {
         let documentID = activeDocumentID ?? newDocument(connectionProfileID: connectionProfileID).id
         guard let state = state(for: documentID) else { return }
         state.connectionProfileID = connectionProfileID
         queryStore.setConnection(documentID, connectionProfileID: connectionProfileID)
-    }
-
-    func insertSnippetIntoActiveEditor(_ sql: String) {
-        insertRequests.send(sql)
     }
 
     /// Clicking a database in the sidebar sets it as that connection's
@@ -129,20 +175,43 @@ final class AppState: ObservableObject {
     func selectDatabase(_ database: String, profileID: UUID) {
         setActiveConnection(profileID)
         guard let profile = connectionManager.profiles.first(where: { $0.id == profileID }) else { return }
+        switch profile.engine {
+        case .postgres:
+            pendingDatabases[profileID] = nil
+            databaseSwitchErrors[profileID] = database == profile.database
+                ? nil
+                : "PostgreSQL connections are bound to one database. Change the connection profile to switch databases."
+            return
+        case .sqlite:
+            pendingDatabases[profileID] = nil
+            databaseSwitchErrors[profileID] = database == URL(fileURLWithPath: profile.filePath).lastPathComponent
+                ? nil
+                : "SQLite connections are bound to one database file."
+            return
+        case .mysql:
+            break
+        }
+        pendingDatabases[profileID] = database
+        databaseSwitchErrors[profileID] = nil
         Task {
             if !connectionManager.connectedIDs.contains(profileID) {
                 await connectionManager.connect(profile)
             }
-            guard let connection = connectionManager.connection(for: profileID) else { return }
-            // Only MySQL has a session-level USE — Postgres has no
-            // equivalent at all (a connection is bound to one database
-            // for its lifetime; "switching" means a new connection, not
-            // a statement) and SQLite has nothing to switch between
-            // (one file is the whole "database"). Trying USE on either
-            // would just be a guaranteed syntax error.
-            guard profile.engine == .mysql else { return }
-            guard (try? await connection.execute(sql: "USE \(profile.engine.quoteIdentifier(database))")) != nil else { return }
-            connectionManager.setCurrentDatabase(database, for: profileID)
+            guard let connection = connectionManager.connection(for: profileID) else {
+                databaseSwitchErrors[profileID] = connectionManager.connectionErrors[profileID] ?? "Could not connect."
+                pendingDatabases[profileID] = nil
+                return
+            }
+            do {
+                _ = try await connection.execute(sql: "USE \(profile.engine.quoteIdentifier(database))")
+                guard pendingDatabases[profileID] == database else { return }
+                connectionManager.setCurrentDatabase(database, for: profileID)
+                pendingDatabases[profileID] = nil
+            } catch {
+                guard pendingDatabases[profileID] == database else { return }
+                databaseSwitchErrors[profileID] = error.localizedDescription
+                pendingDatabases[profileID] = nil
+            }
         }
     }
 
@@ -156,6 +225,11 @@ final class AppState: ObservableObject {
 
     func updateActiveSQL(_ sql: String) {
         guard let documentID = activeDocumentID, let state = state(for: documentID) else { return }
+        if state.sql != sql {
+            state.executionDuration = nil
+            state.errorMessage = nil
+        }
+        state.tableBrowseContext = nil
         state.sql = sql
         queryStore.updateSQL(documentID, sql: sql)
     }
@@ -168,9 +242,10 @@ final class AppState: ObservableObject {
     /// caret (or the real selection, if any) so Run never fires an
     /// unrelated statement sitting elsewhere in a multi-statement buffer.
     func executeCurrentSQL(_ overrideSQL: String? = nil) {
-        guard let state = activeState else { return }
+        guard let state = activeState, !state.isExecuting else { return }
         let sql = (overrideSQL ?? state.sql).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sql.isEmpty else { return }
+        state.executionDuration = nil
         guard let profileID = state.connectionProfileID,
               let connection = connectionManager.connection(for: profileID) else {
             state.errorMessage = "No active connection. Connect to a database first."
@@ -200,14 +275,17 @@ final class AppState: ObservableObject {
 
             state.isExecuting = true
             state.errorMessage = nil
+            let startedAt = ProcessInfo.processInfo.systemUptime
             do {
                 let result = try await connection.execute(sql: runSQL)
+                state.executionDuration = ProcessInfo.processInfo.systemUptime - startedAt
                 state.queryResult = result
                 historyStore.record(sql: sql, connectionProfileID: profileID, connectionName: connectionName, succeeded: true, errorMessage: nil)
                 if paginate {
                     fetchTotalRowCount(baseSQL: paginationBase, connection: connection, state: state)
                 }
             } catch {
+                state.executionDuration = ProcessInfo.processInfo.systemUptime - startedAt
                 state.errorMessage = error.localizedDescription
                 if case DatabaseError.connectionLost = error {
                     connectionManager.markDisconnected(profileID)
@@ -244,11 +322,15 @@ final class AppState: ObservableObject {
 
         Task {
             state.isExecuting = true
+            state.errorMessage = nil
+            let startedAt = ProcessInfo.processInfo.systemUptime
             do {
                 let result = try await connection.execute(sql: "\(baseSQL) LIMIT \(Self.resultPageSize) OFFSET \(offset)")
+                state.executionDuration = ProcessInfo.processInfo.systemUptime - startedAt
                 state.queryResult = result
                 state.currentPage = page
             } catch {
+                state.executionDuration = ProcessInfo.processInfo.systemUptime - startedAt
                 state.errorMessage = error.localizedDescription
             }
             state.isExecuting = false

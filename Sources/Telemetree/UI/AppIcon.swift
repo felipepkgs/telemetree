@@ -11,7 +11,6 @@ enum AppIcon: String {
     case table = "table"
     case folder = "opened-folder"
     case document = "document"
-    case snippet = "snippet"
     case warning = "error"
     case close = "multiply"
     case trash = "trash"

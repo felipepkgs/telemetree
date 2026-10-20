@@ -1,5 +1,210 @@
 # Telemetree — Spec Addenda
 
+## Workspace hierarchy and appearance update
+
+- Replaced the Vapor variants with two native app appearances: Light and
+  Dark. Removed the theme menu, carbon weave, and animated status-dot styling.
+- SQL token colors are now GitHub Light and GitHub Dark palettes; editor
+  font and size preferences remain independent.
+- Added a persistent bottom status bar showing the active connection,
+  database, connection/switch state, and last query duration (including
+  failed executions and page changes).
+- Renamed the global search field and menu action to “Search Everywhere.”
+- Kept chrome neutral and compact, using restrained borders and accent color
+  to clarify the tab, editor, results, and status hierarchy.
+- No new screenshots or version bump in this implementation pass.
+
+## Product direction: persistent SQL workbench
+
+The product is evolving from a TablePlus alternative toward a focused,
+native database IDE: borrow the useful workflow ideas from DataGrip, while
+keeping Telemetree smaller, keyboard-first, and macOS-native. The Snippets
+section has been removed from the active app, command palette, persistence
+code, README, and product page. Existing `snippets.json` files are left
+untouched on disk; removing the feature must not silently destroy user data.
+
+### DataGrip feature research and Telemetree fit
+
+Reviewed JetBrains' current product overview and documentation for SQL
+editing, query execution plans, data browsing/filtering, object search,
+schema comparison, refactoring, and query history. The highest-value
+directions for this project are:
+
+1. **Schema-aware SQL IDE (extend what exists).** Completion already knows
+   cached table/column names. The next step is reliable schema metadata,
+   inline diagnostics, and quick documentation/DDL for referenced objects.
+   DataGrip's editor uses the attached schema for completion and object
+   navigation; these reinforce Telemetree's current editor-first approach.
+2. **First-class table data browsing.** Build on the existing result grid,
+   pagination, inline editing, and foreign-key navigation with server-side
+   filters and sort controls. DataGrip distinguishes local result sorting
+   from server-side table filtering/sorting; Telemetree should be explicit
+   about which one it is doing and keep large tables paged.
+3. **EXPLAIN plans.** Add a native, statement-scoped Explain action and a
+   readable plan view. Start with raw/tree output; visual plan graphs can
+   wait. DataGrip exposes raw and structured plans, with execution analysis
+   where the engine supports it.
+4. **SQL formatting and low-risk inspections.** A dialect-aware formatter
+   and diagnostics (unknown table/column, unused aliases, likely mistakes)
+   would bring IDE value without adopting a general-purpose IDE framework.
+5. **Schema and data comparison.** Useful for staging/production workflows,
+   but more expensive and risk-sensitive; compare/read-only first, generate
+   a reviewable script, and never apply changes implicitly.
+6. **Lower-priority ideas:** broad refactorings, VCS-backed DDL projects,
+   import/export format customization, diagrams, AI, and support for every
+   DataGrip engine. These are not commitments; prefer improvements to the
+   three existing drivers before expanding scope.
+
+Suggested order: schema-aware editor quality → table filtering/navigation →
+Explain plans → formatter/diagnostics → comparison. This is a research
+direction, not authorization to start a specific feature. App icon and
+system appearance decisions remain separate open items.
+
+## Next development specifications
+
+Scope requested: DataGrip-inspired workstreams 1, 2, and 4 above, plus a
+visible active-database context. No screenshots or release/version bump
+until this scoped work is complete.
+
+### Priority 0: make the active database unmistakable
+
+**Problem found in current code:** `ConnectionManager.currentDatabases` tracks
+the selected database per connection, and clicking a database calls
+`AppState.selectDatabase`. The active workspace has no prominent context
+indicator, however, and `selectDatabase` silently returns on a failed `USE`.
+Users can therefore be unsure which database an unqualified query will use,
+or whether a switch actually succeeded.
+
+**Behavior:** show the active query's connection name and effective database
+in a persistent workspace context strip beside/under the query tabs. It must
+update when the active query or its connection changes, distinguish
+connection from database, and display connecting/switching/disconnected
+states. For MySQL, show the session's selected schema (including a pending
+switch and a visible error if `USE` fails). For PostgreSQL show the database
+bound to that connection; for SQLite show the active file/database name.
+Never imply a new context until the driver confirms it. The affordance should
+let the user switch/focus the corresponding sidebar connection/database.
+
+**Implementation:** derive the label from the active `OpenDocumentState`'s
+`connectionProfileID`, `ConnectionProfile`, connection state, and the
+existing per-profile `currentDatabases`. Add a small AppKit workspace
+component (likely adjacent to `DocumentTabBarView`) observing those existing
+Combine publishers; don't create another source of truth. Replace the silent
+failure path in `AppState.selectDatabase` with explicit switching/error
+state surfaced in this component. Guard async completion against the active
+profile changing while `USE` is in flight. Keep context per connection,
+because the underlying DB session is shared by query documents.
+
+**Acceptance:** with two saved profiles and multiple databases, changing
+the active query updates the indicator; selecting another MySQL database
+shows pending then the confirmed schema; failed `USE` leaves the prior
+confirmed context visible and presents an error; disconnect/reconnect clears
+then restores context accurately. Postgres and SQLite display their bound
+database/file without offering MySQL-style `USE`.
+
+**Implemented locally:** the tab strip now has an accessible connection /
+database / connection-state line. Table browsing labels its database scope;
+MySQL switches show pending state and keep the previous database until
+`USE` succeeds. Errors are visible in red with the underlying message as a
+tooltip. PostgreSQL's explorer only lists the database bound to its profile;
+SQLite identifies its database file. Unsupported switches explain how to
+change connection context rather than silently doing nothing.
+
+### Priority 1: schema-aware SQL assistance
+
+**Behavior:** improve the existing completion and metadata path rather than
+replace the editor. Suggestions must use the active query's connection and
+database, support tables/columns/aliases in the statement, and remain
+statement-scoped. Add quick documentation/DDL for the object under the caret
+and concise inline diagnostics for known unknown tables/columns. Metadata
+that has not been loaded must not be presented as a confirmed error.
+
+**Implementation:** extend the existing `SQLCompletionController`, metadata
+providers, and `DatabaseConnection` APIs; share cached metadata per
+connection/database and invalidate on reconnect or database switch. Keep
+engine-specific introspection in each driver. Add a native AppKit quick-doc
+popover and diagnostics using the existing editor/highlighting components.
+No parser framework or dependency for the first pass; document parser limits
+and avoid destructive auto-fixes.
+
+**Acceptance:** suggestions and docs match the active database after
+switching; stale async metadata cannot overwrite the new context; unresolved
+metadata yields no false error; completion handles quoted identifiers and
+multiple statements without leaking names across statements.
+
+**Implemented locally:** existing schema-backed completion now invalidates
+and reloads on profile/database changes, and failures no longer leave a
+previous connection's schema active. A `Structure` editor action shows the
+columns for the table under the caret. Once the table list is successfully
+loaded, unknown unqualified table names receive a subtle orange underline;
+quoted strings/comments and the first CTE name are excluded. This is a
+conservative first diagnostic, not a full SQL parser or DDL viewer.
+
+### Priority 2: first-class table data browsing
+
+**Behavior:** keep table browsing distinct from arbitrary query results.
+Add a filter field and server-side sorting/filtering for a selected table;
+retain pagination, inline editing, copy/export, and foreign-key navigation.
+The UI must disclose when a filter/order is applied server-side. Never
+silently fetch an unbounded table or imply that client-side sorting covers
+rows outside the loaded page.
+
+**Implementation:** introduce the smallest table-browser state alongside
+the existing result-grid state: selected table, filter text, sort column and
+direction, page/limit. Generate SELECTs with driver-specific identifier
+quoting and bound filter values; keep arbitrary SQL execution unchanged.
+Reuse existing `DatabaseConnection`, `QueryResult`, pagination, and result
+grid where possible. Only enable inline edits when the existing primary-key
+and single-table checks pass.
+
+**Acceptance:** filtering/sorting applies across the server-side result,
+pagination remains bounded and resets when criteria change, identifiers are
+quoted per engine, filter values are never interpolated unsafely, and the UI
+distinguishes table-browser actions from local result-grid sorting.
+
+**Implemented locally:** right-click a cell in a sidebar-opened table to
+filter for or exclude its value; click a result-column header to sort on the
+server. Filters and order are part of the table-browser query, remain paged,
+and can be cleared from the cell context menu. Values are encoded as
+engine-specific hex literals, not interpolated as executable text. Arbitrary
+SQL result sorting remains client-side and is labeled separately.
+
+### Priority 3: SQL formatting and low-risk inspections (research item 4)
+
+**Behavior:** add a format-current-statement/selection action with a preview
+or undoable editor change, plus a small set of dependable diagnostics such
+as unresolved table/column names when schema metadata is complete. Do not
+format or diagnose SQL while required metadata is incomplete; no automatic
+execution or schema mutation.
+
+**Implementation:** first evaluate a small dialect-aware formatter that can
+run locally without adding an unnecessary dependency. Keep formatter rules
+minimal (keyword case, indentation, line breaks), preserve comments/string
+literals, and make the edit undoable. Diagnostics should reuse the schema
+metadata from Priority 1 rather than implement a separate catalog/parser.
+
+**Acceptance:** format selection/current statement only, preserve literals
+and comments, undo restores exact prior text, and diagnostics avoid reporting
+unknown names from unrefreshed or incomplete metadata.
+
+**Implemented locally:** the editor's Format action operates on the
+selection or statement under the caret and remains undoable. It uppercases
+recognized SQL keywords and lays out common clauses while preserving quoted
+text and comments. The schema warning pass reports only unknown unqualified
+table references after a successful table-list load; column diagnostics,
+quick documentation, and DDL viewing remain open scope.
+
+### Delivery sequence
+
+1. Active-database indicator and truthful switch/error states (user issue).
+2. Table browsing filters/sorting, using existing pagination and grid.
+3. Schema metadata/completion/quick documentation and diagnostics.
+4. Formatter and inspections, built on the same metadata path.
+
+Keep each step independently buildable and usable. Run local Debug builds
+only on this machine. No screenshots, version bump, or release are part of
+this implementation pass; those wait until the scoped work is reviewed.
+
 The original product spec (MVP scope, milestones, architecture) was given at
 project start and isn't reproduced here. This file tracks additions made
 after that point, so they survive context resets.
@@ -67,6 +272,9 @@ wrap this with a system-font fallback if a weight isn't bundled. Applied
 everywhere `.systemFont`/`.monospacedSystemFont` was previously used.
 
 ## Cross-app theme system
+
+This section records the former Vapor implementation and is superseded by
+“Workspace hierarchy and appearance update” above.
 
 The user maintains a shared visual language across their apps, originally
 authored for **GhostBar** (a Touch Bar overlay utility) as an 8-theme
@@ -204,11 +412,11 @@ normal nested tree). Connections aren't filtered — no stated need for it.
 
 Settings landed already (Preferences window, above). Scope decision: system
 light/dark appearance is explicitly deferred to the very end of the
-project — Vapor is a fixed dark aesthetic and won't respond to the system
-appearance setting until M5 is otherwise done. Remaining open items:
-error-handling depth (clearer messages for common MySQL error codes,
-reconnect-on-drop), no accessibility/VoiceOver labels anywhere yet, no
-custom app icon, no performance/stress-testing pass done.
+project. The core polish work is implemented: friendly MySQL errors,
+connection-drop handling, accessibility labels, pagination, settings, and
+an app icon. Remaining work is nice to have: a real VoiceOver pass on a
+distributed build and broader performance profiling. The app icon is ready
+for the user's design decision; keep Raycast's icon in mind as a reference.
 
 - **Fixed**: pagination for large result sets — an original MVP bullet
   that never got built (the results grid loaded a query's entire result
@@ -229,12 +437,10 @@ Telemetree (windowed app, no `LSUIElement`; bundle ID
 `com.felipepkgs.telemetree`; `depends_on macos: :sonoma` since this app
 targets macOS 14 vs. GhostBar's 13).
 
-- `Packaging/Info.plist` — real bundle metadata. No `CFBundleIconFile` yet
-  — no custom app icon exists (still an open discussion with the user,
-  flagged separately from this packaging work). The bundle falls back to
-  the generic macOS app icon until one's chosen; `Scripts/build_app.sh`
-  already copies `Packaging/AppIcon.icns` into the bundle *if present*, so
-  adding the icon later needs no script change.
+- `Packaging/Info.plist` — real bundle metadata, including
+  `CFBundleIconFile`; the app icon is generated from
+  `Packaging/icon-source.svg` by `Packaging/icon-regen.sh` and copied into
+  the bundle by `Scripts/build_app.sh`.
 - `Scripts/build_app.sh` — `swift build -c release`, hand-assembles
   `Telemetree.app` (binary, Info.plist, the `Telemetree_Telemetree.bundle`
   SPM resource bundle for the Icons8/Geist assets), ad-hoc codesigns
@@ -410,18 +616,9 @@ missed.
   the stored `paginationBaseSQL` `loadMoreRows` reuses. Verified against
   a real 600-row table: correct page boundaries, ~7-10ms per page
   regardless of depth.
-- **Found, not fixed**: DML statements (INSERT/UPDATE/DELETE) always show
-  "0 row(s) affected" regardless of the real count.
-  `MySQLDatabaseConnection.execute`'s `simpleQuery` never returns
-  result-set rows for DML, so the `guard let firstRow = rows.first else
-  { return ...affectedRows: 0 }` early-return path always hits. The real
-  affected-rows count only comes from MySQLNIO's `OK_Packet`, exposed via
-  the `query(_:_:onRow:onMetadata:)` API — a different wire protocol
-  (prepared statements, COM_STMT_PREPARE/EXECUTE) than `simpleQuery`'s
-  text protocol (COM_QUERY). Switching carries migration risk (prepared
-  statements can behave differently for some DDL/multi-statement cases)
-  that needed more testing than there was room for — left as a known
-  issue, data integrity isn't affected, just the displayed count.
+- **Fixed**: DML statements (INSERT/UPDATE/DELETE) previously showed
+  "0 row(s) affected" regardless of the real count. The later fix and its
+  current verification status are recorded below.
 - **Accessibility — verified as far as this environment allows, not
   further**: confirmed the actual bug class (`NSButton`/`NSTableCellView`
   silently ignore `setAccessibilityLabel()`, must override the getter —
@@ -460,7 +657,8 @@ missed.
 
 ## App icon and the DML affected-rows fix
 
-- **App icon, implemented**: `Packaging/icon-source.svg` reuses the docs
+- **App icon, implemented; design decision pending**:
+  `Packaging/icon-source.svg` reuses the docs
   site's nav logo glyph (`docs/index.html`'s `.brand` svg — the
   connection-tree mark, a nod to "Telemetree") scaled 38x onto a purple
   gradient squircle, with stroke widths scaled proportionally rather than
@@ -473,15 +671,16 @@ missed.
   (via `sips` + `iconutil`, no extra dependency); `Packaging/Info.plist`
   now sets `CFBundleIconFile`. The iconset intermediate PNGs aren't
   committed (regenerable, would just be repo bloat) — only the SVG
-  source, the regen script, and the compiled `.icns`.
-- **Fixed**: DML affected-rows always showing 0 (noted above as found but
-  not fixed). `MySQLDatabaseConnection.execute` now calls MySQLNIO's
+  source, the regen script, and the compiled `.icns`. The user wants to
+  consider Raycast's app icon as a visual reference before deciding whether
+  to keep or revise this first version.
+- **Fixed**: DML affected-rows always showing 0. `MySQLDatabaseConnection.execute` now calls MySQLNIO's
   `query(_:onMetadata:)` (prepared-statement protocol,
   COM_STMT_PREPARE/EXECUTE) instead of `simpleQuery` (text protocol,
   COM_QUERY) — the latter never returns an `OK_Packet`; the former does,
   and its `affectedRows` is threaded through when a query returns no rows
-  (i.e. any DML). Verified via a clean build; not yet re-verified against
-  a live INSERT/UPDATE/DELETE the way the earlier pagination fix was.
+  (i.e. any DML). Verified via a clean build; live INSERT/UPDATE/DELETE
+  verification remains a nice-to-have.
 
 ## SQL editor: replaced AppKit's native completion entirely
 

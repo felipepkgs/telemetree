@@ -44,6 +44,7 @@ final class ResultsGridViewController: NSViewController {
     /// (same editableTable gate cell editing already uses).
     private var foreignKeysByColumn: [String: ForeignKeyReference] = [:]
     private var foreignKeyFetchKey: String?
+    private var tableBrowseContext: TableBrowseContext?
 
     /// Editing is only actually safe once the primary key columns are
     /// both known AND present in the current result set — a SELECT that
@@ -62,7 +63,7 @@ final class ResultsGridViewController: NSViewController {
     /// Cell font for the grid — previously a hardcoded FontLibrary.mono(11)
     /// that ignored the Preferences font-size setting entirely, the one
     /// place in the app where changing it had no visible effect. Now
-    /// tracks appState.fontPreferences the same way the SQL/snippet
+    /// tracks appState.fontPreferences the same way the SQL
     /// editors already did.
     private var dataFont: NSFont = FontLibrary.mono(11)
 
@@ -97,8 +98,7 @@ final class ResultsGridViewController: NSViewController {
         tableView.action = #selector(handleClick)
 
         let menu = NSMenu()
-        menu.addItem(withTitle: "Copy Cell", action: #selector(copySelectedCell), keyEquivalent: "")
-        menu.addItem(withTitle: "Copy Row", action: #selector(copySelectedRow), keyEquivalent: "")
+        menu.delegate = self
         tableView.menu = menu
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -216,7 +216,7 @@ final class ResultsGridViewController: NSViewController {
     }
 
     private func applyTheme(_ theme: Theme) {
-        statusBar.layer?.backgroundColor = theme.barFillPaint.cgColor
+        statusBar.layer?.backgroundColor = theme.barFill.cgColor
         statusBar.layer?.borderColor = theme.barBorder.cgColor
         statusBar.layer?.borderWidth = 1
     }
@@ -283,6 +283,11 @@ final class ResultsGridViewController: NSViewController {
                 self?.refreshPrimaryKeyIfNeeded()
                 self?.refreshForeignKeysIfNeeded()
             }
+            .store(in: &documentCancellables)
+
+        state.$tableBrowseContext
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] context in self?.tableBrowseContext = context }
             .store(in: &documentCancellables)
     }
 
@@ -387,14 +392,15 @@ final class ResultsGridViewController: NSViewController {
     /// that's always on screen, not just a hover tooltip — the blue cell
     /// color alone wasn't discoverable enough on its own.
     private func setStatusText(_ base: String) {
+        let displayText = tableBrowseContext.map { $0.filters.isEmpty && $0.sortColumn == nil ? base : "\(base)  ·  Server-side table filter/sort" } ?? base
         guard !foreignKeysByColumn.isEmpty else {
-            statusLabel.stringValue = base
+            statusLabel.stringValue = displayText
             return
         }
         let font = statusLabel.font ?? FontLibrary.sans(11)
         let color = NSColor.secondaryLabelColor
         let text = NSMutableAttributedString(
-            string: base + "  ",
+            string: displayText + "  ",
             attributes: [.font: font, .foregroundColor: color]
         )
         let attachment = NSTextAttachment()
@@ -581,6 +587,29 @@ final class ResultsGridViewController: NSViewController {
         copyToPasteboard(rowText(result.rows[row]))
     }
 
+    @objc private func filterByClickedCell(_ sender: NSMenuItem) {
+        applyCellFilter(excluded: sender.tag == 1)
+    }
+
+    @objc private func clearTableFilters() {
+        guard var context = tableBrowseContext else { return }
+        context.filters = []
+        context.sortColumn = nil
+        context.sortAscending = true
+        appState.updateTableBrowse(context)
+    }
+
+    private func applyCellFilter(excluded: Bool) {
+        guard var context = tableBrowseContext else { return }
+        let row = tableView.clickedRow
+        let column = tableView.clickedColumn
+        guard row >= 0, row < result.rows.count,
+              column >= 0, column < result.columns.count,
+              column < result.rows[row].count else { return }
+        context.filters.append(TableBrowseFilter(column: result.columns[column], value: result.rows[row][column], excluded: excluded))
+        appState.updateTableBrowse(context)
+    }
+
     private func rowText(_ row: [QueryValue]) -> String {
         row.map(\.displayString).joined(separator: "\t")
     }
@@ -600,6 +629,12 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
         guard let descriptor = tableView.sortDescriptors.first,
               let key = descriptor.key,
               let index = Int(key.dropFirst(3)) else { return }
+        if var context = tableBrowseContext, result.columns.indices.contains(index) {
+            context.sortColumn = result.columns[index]
+            context.sortAscending = descriptor.ascending
+            appState.updateTableBrowse(context)
+            return
+        }
         result = QueryResult(
             columns: result.columns,
             rows: result.rows.sorted { lhs, rhs in
@@ -657,6 +692,31 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
             cell.toolTip = value.displayString
         }
         return cell
+    }
+}
+
+extension ResultsGridViewController: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        menu.addItem(withTitle: "Copy Cell", action: #selector(copySelectedCell), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Copy Row", action: #selector(copySelectedRow), keyEquivalent: "").target = self
+        guard tableBrowseContext != nil,
+              tableView.clickedRow >= 0, tableView.clickedColumn >= 0,
+              tableView.clickedRow < result.rows.count,
+              tableView.clickedColumn < result.columns.count,
+              tableView.clickedColumn < result.rows[tableView.clickedRow].count else { return }
+        menu.addItem(.separator())
+        let columnName = result.columns[tableView.clickedColumn]
+        let value = result.rows[tableView.clickedRow][tableView.clickedColumn].displayString
+        let include = menu.addItem(withTitle: "Filter \(columnName) = \(value)", action: #selector(filterByClickedCell(_:)), keyEquivalent: "")
+        include.target = self
+        include.tag = 0
+        let exclude = menu.addItem(withTitle: "Exclude \(columnName) = \(value)", action: #selector(filterByClickedCell(_:)), keyEquivalent: "")
+        exclude.target = self
+        exclude.tag = 1
+        if let context = tableBrowseContext, !context.filters.isEmpty || context.sortColumn != nil {
+            menu.addItem(withTitle: "Clear Table Filters and Sorting", action: #selector(clearTableFilters), keyEquivalent: "").target = self
+        }
     }
 }
 

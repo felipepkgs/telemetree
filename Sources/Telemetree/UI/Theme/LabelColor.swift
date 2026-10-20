@@ -1,6 +1,6 @@
 import AppKit
 
-/// A small fixed palette for color-labeling queries/folders/snippets in
+/// A small fixed palette for color-labeling connections, queries, and folders in
 /// the sidebar, matching the "8 colors is fine" scope — not a custom
 /// color picker.
 enum LabelColor: String, CaseIterable, Codable {

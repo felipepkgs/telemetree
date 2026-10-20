@@ -1,5 +1,20 @@
 import Foundation
 
+struct TableBrowseFilter: Equatable {
+    let column: String
+    let value: QueryValue
+    let excluded: Bool
+}
+
+struct TableBrowseContext: Equatable {
+    let profileID: UUID
+    let database: String
+    let table: String
+    var filters: [TableBrowseFilter] = []
+    var sortColumn: String?
+    var sortAscending = true
+}
+
 /// Runtime (non-persisted) editing/execution state for one open query
 /// document. The document's name/SQL/connection are persisted via
 /// QueryStore; this just holds what's currently on screen for it.
@@ -11,6 +26,7 @@ final class OpenDocumentState: ObservableObject {
     @Published var connectionProfileID: UUID?
     @Published var queryResult: QueryResult = .empty
     @Published var isExecuting = false
+    @Published var executionDuration: TimeInterval?
     @Published var errorMessage: String?
 
     /// Set only for a plain, un-LIMITed SELECT — lets the results grid page
@@ -27,6 +43,7 @@ final class OpenDocumentState: ObservableObject {
     /// anything else (a JOIN, DML, a multi-statement buffer, no result
     /// yet). Drives whether the results grid offers inline cell editing.
     @Published var editableTable: String?
+    @Published var tableBrowseContext: TableBrowseContext?
 
     init(document: QueryDocument) {
         self.documentID = document.id

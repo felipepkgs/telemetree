@@ -14,10 +14,7 @@ import AppKit
 ///     `FROM `table`` clause to the end of the statement — the caret
 ///     stays exactly where the column was accepted, not wherever FROM
 ///     landed.
-/// Shared by the main SQL editor and the snippet editor so both get the
-/// same behavior instead of two copies drifting apart; the snippet editor
-/// leaves all three providers at their defaults (no schema — snippets
-/// aren't tied to one connection).
+/// Used by the main SQL editor.
 ///
 /// Deliberately not `NSTextView.complete(_:)` — see CompletionPopup's own
 /// doc comment for why.
@@ -127,9 +124,21 @@ final class SQLCompletionController {
     ]
 
     private static let tableReferenceRegex = try! NSRegularExpression(
-        pattern: #"\b(?:FROM|JOIN)\s+(?:`?[A-Za-z_][A-Za-z0-9_]*`?\.)?`?([A-Za-z_][A-Za-z0-9_]*)`?"#,
+        pattern: #"\b(?:FROM|JOIN)\s+(?:(`?[A-Za-z_][A-Za-z0-9_]*`?)\s*\.\s*)?`?([A-Za-z_][A-Za-z0-9_]*)`?"#,
         options: .caseInsensitive
     )
+
+    static func tableReferences(in sql: String) -> [(name: String, range: NSRange, qualified: Bool)] {
+        let maskedSQL = SQLStatementLocator.maskingLiteralsAndComments(in: sql)
+        let source = sql as NSString
+        let matches = tableReferenceRegex.matches(in: maskedSQL, range: NSRange(location: 0, length: (maskedSQL as NSString).length))
+        return matches.compactMap { match in
+            guard match.numberOfRanges > 2 else { return nil }
+            let range = match.range(at: 2)
+            guard range.location != NSNotFound else { return nil }
+            return (source.substring(with: range).trimmingCharacters(in: CharacterSet(charactersIn: "`")), range, match.range(at: 1).location != NSNotFound)
+        }
+    }
 
     private func updateCompletions() {
         guard textView.selectedRange().length == 0 else {
@@ -197,15 +206,16 @@ final class SQLCompletionController {
     /// suggest columns from an unrelated statement elsewhere in it).
     private func referencedTableNames() -> [String] {
         let fullText = textView.string
-        let scopeText = SQLStatementLocator.statement(containing: textView.selectedRange().location, in: fullText)?.text ?? fullText
-        let nsScope = scopeText as NSString
-        let matches = Self.tableReferenceRegex.matches(in: scopeText, range: NSRange(location: 0, length: nsScope.length))
+        let scopeRange = SQLStatementLocator.statement(containing: textView.selectedRange().location, in: fullText)?.range
+        let matches = Self.tableReferences(in: fullText).filter { item in
+            guard let scopeRange else { return true }
+            return NSLocationInRange(item.range.location, scopeRange)
+        }
         var seen = Set<String>()
         var names: [String] = []
-        for match in matches where match.numberOfRanges > 1 {
-            let name = nsScope.substring(with: match.range(at: 1))
-            guard seen.insert(name.lowercased()).inserted else { continue }
-            names.append(name)
+        for item in matches {
+            guard seen.insert(item.name.lowercased()).inserted else { continue }
+            names.append(item.name)
         }
         return names
     }

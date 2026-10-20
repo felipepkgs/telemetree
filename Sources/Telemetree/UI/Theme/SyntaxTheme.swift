@@ -1,8 +1,7 @@
 import AppKit
 
-/// Color scheme for SQLSyntaxHighlighter. Separate from the app-chrome
-/// Theme (Vapor/Gold/Silver/Carbon) — this only affects editor token
-/// colors, so it's selectable independently.
+/// GitHub's light and dark syntax palettes, independently selectable from
+/// the interface appearance.
 struct SyntaxTheme: Identifiable, Equatable {
     let id: String
     let name: String
@@ -14,45 +13,23 @@ struct SyntaxTheme: Identifiable, Equatable {
 
     static func == (lhs: SyntaxTheme, rhs: SyntaxTheme) -> Bool { lhs.id == rhs.id }
 
-    static let `default` = SyntaxTheme(
-        id: "default",
-        name: "Default",
-        keyword: .systemPurple,
-        string: .systemRed,
-        number: .systemTeal,
-        comment: .secondaryLabelColor,
-        text: .labelColor
+    static let githubLight = SyntaxTheme(
+        id: "github-light", name: "GitHub Light",
+        keyword: NSColor(calibratedRed: 0.81, green: 0.13, blue: 0.18, alpha: 1),
+        string: NSColor(calibratedRed: 0.04, green: 0.19, blue: 0.41, alpha: 1),
+        number: NSColor(calibratedRed: 0.02, green: 0.31, blue: 0.68, alpha: 1),
+        comment: NSColor(calibratedRed: 0.43, green: 0.47, blue: 0.51, alpha: 1),
+        text: NSColor(calibratedRed: 0.12, green: 0.14, blue: 0.16, alpha: 1)
     )
 
-    static let dracula = SyntaxTheme(
-        id: "dracula",
-        name: "Dracula",
-        keyword: NSColor(calibratedRed: 1.0, green: 0.475, blue: 0.776, alpha: 1),
-        string: NSColor(calibratedRed: 0.945, green: 0.980, blue: 0.549, alpha: 1),
-        number: NSColor(calibratedRed: 0.741, green: 0.576, blue: 0.976, alpha: 1),
-        comment: NSColor(calibratedRed: 0.384, green: 0.447, blue: 0.643, alpha: 1),
-        text: NSColor(calibratedRed: 0.973, green: 0.973, blue: 0.949, alpha: 1)
+    static let githubDark = SyntaxTheme(
+        id: "github-dark", name: "GitHub Dark",
+        keyword: NSColor(calibratedRed: 1, green: 0.48, blue: 0.45, alpha: 1),
+        string: NSColor(calibratedRed: 0.65, green: 0.84, blue: 1, alpha: 1),
+        number: NSColor(calibratedRed: 0.48, green: 0.75, blue: 1, alpha: 1),
+        comment: NSColor(calibratedRed: 0.55, green: 0.59, blue: 0.64, alpha: 1),
+        text: NSColor(calibratedRed: 0.90, green: 0.93, blue: 0.96, alpha: 1)
     )
 
-    static let monokai = SyntaxTheme(
-        id: "monokai",
-        name: "Monokai",
-        keyword: NSColor(calibratedRed: 0.980, green: 0.149, blue: 0.545, alpha: 1),
-        string: NSColor(calibratedRed: 0.902, green: 0.859, blue: 0.455, alpha: 1),
-        number: NSColor(calibratedRed: 0.682, green: 0.506, blue: 1.0, alpha: 1),
-        comment: NSColor(calibratedRed: 0.459, green: 0.443, blue: 0.373, alpha: 1),
-        text: NSColor(calibratedRed: 0.973, green: 0.973, blue: 0.949, alpha: 1)
-    )
-
-    static let solarizedDark = SyntaxTheme(
-        id: "solarized-dark",
-        name: "Solarized Dark",
-        keyword: NSColor(calibratedRed: 0.522, green: 0.600, blue: 0, alpha: 1),
-        string: NSColor(calibratedRed: 0.165, green: 0.631, blue: 0.596, alpha: 1),
-        number: NSColor(calibratedRed: 0.827, green: 0.212, blue: 0.510, alpha: 1),
-        comment: NSColor(calibratedRed: 0.396, green: 0.482, blue: 0.514, alpha: 1),
-        text: NSColor(calibratedRed: 0.514, green: 0.580, blue: 0.588, alpha: 1)
-    )
-
-    static let all: [SyntaxTheme] = [.default, .dracula, .monokai, .solarizedDark]
+    static let all: [SyntaxTheme] = [.githubLight, .githubDark]
 }

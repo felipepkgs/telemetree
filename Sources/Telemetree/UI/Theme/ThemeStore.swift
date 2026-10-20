@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 @MainActor
 final class ThemeStore: ObservableObject {
@@ -8,11 +8,13 @@ final class ThemeStore: ObservableObject {
 
     init() {
         let savedID = UserDefaults.standard.string(forKey: defaultsKey)
-        current = Theme.all.first { $0.id == savedID } ?? .vapor
+        current = Theme.all.first { $0.id == savedID } ?? .dark
+        NSApp.appearance = NSAppearance(named: current.appearanceName)
     }
 
     func select(_ theme: Theme) {
         current = theme
         UserDefaults.standard.set(theme.id, forKey: defaultsKey)
+        NSApp.appearance = NSAppearance(named: theme.appearanceName)
     }
 }

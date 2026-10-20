@@ -52,7 +52,7 @@ final class PreferencesWindowController: NSWindowController {
         themePopup.target = self
         themePopup.action = #selector(themeChanged(_:))
 
-        let grid = NSGridView(views: [[label("Theme:"), themePopup]])
+        let grid = NSGridView(views: [[label("Interface:"), themePopup]])
         return tabItem(identifier: "appearance", label: "Appearance", grid: grid)
     }
 
@@ -65,7 +65,7 @@ final class PreferencesWindowController: NSWindowController {
         syntaxPopup.target = self
         syntaxPopup.action = #selector(syntaxThemeChanged(_:))
 
-        let grid = NSGridView(views: [[label("Highlighting:"), syntaxPopup]])
+        let grid = NSGridView(views: [[label("SQL colors:"), syntaxPopup]])
         return tabItem(identifier: "syntax", label: "Syntax Highlighting", grid: grid)
     }
 
@@ -127,7 +127,7 @@ final class PreferencesWindowController: NSWindowController {
     @objc private func themeChanged(_ sender: NSPopUpButton) {
         guard let title = sender.selectedItem?.title,
               let theme = Theme.all.first(where: { $0.name == title }) else { return }
-        appState.themeStore.select(theme)
+        appState.selectAppearance(theme)
     }
 
     @objc private func syntaxThemeChanged(_ sender: NSPopUpButton) {

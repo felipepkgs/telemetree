@@ -7,7 +7,7 @@ private struct PaletteItem {
     let action: () -> Void
 }
 
-/// ⌘⇧P — fuzzy (substring) search across query documents, snippets,
+/// ⌘⇧P — fuzzy (substring) search across query documents,
 /// connections, and a handful of actions, in one place. Deliberately
 /// skips live table names for now: that would need a schema-name cache
 /// this app doesn't build yet (each connection's tables are only loaded
@@ -62,7 +62,7 @@ final class CommandPaletteWindowController: NSWindowController {
     private func buildUI() {
         guard let contentView = window?.contentView else { return }
 
-        searchField.placeholderString = "Search queries, snippets, connections, actions…"
+        searchField.placeholderString = "Search Everywhere"
         searchField.delegate = self
         searchField.font = FontLibrary.sans(15)
         searchField.translatesAutoresizingMaskIntoConstraints = false
@@ -114,11 +114,6 @@ final class CommandPaletteWindowController: NSWindowController {
                 appState?.openDocument(document.id)
             })
         }
-        for snippet in appState.snippetStore.snippets.sorted(by: { $0.name < $1.name }) {
-            items.append(PaletteItem(id: "snippet:\(snippet.id)", title: snippet.name, category: "Snippet") { [weak appState] in
-                appState?.insertSnippetIntoActiveEditor(snippet.sql)
-            })
-        }
         for profile in appState.connectionManager.profiles.sorted(by: { $0.name < $1.name }) {
             items.append(PaletteItem(id: "connection:\(profile.id)", title: profile.name, category: "Connection") { [weak appState] in
                 appState?.setActiveConnection(profile.id)
@@ -128,9 +123,6 @@ final class CommandPaletteWindowController: NSWindowController {
         items.append(PaletteItem(id: "action:new-query", title: "New Query", category: "Action") { [weak appState] in
             appState?.newDocument()
         })
-        items.append(PaletteItem(id: "action:new-snippet", title: "New Snippet", category: "Action") { [weak appState] in
-            appState?.snippetStore.createSnippet()
-        })
         items.append(PaletteItem(id: "action:run-query", title: "Run Current Query", category: "Action") { [weak appState] in
             appState?.executeCurrentSQL()
         })
@@ -139,7 +131,7 @@ final class CommandPaletteWindowController: NSWindowController {
         })
         for theme in Theme.all {
             items.append(PaletteItem(id: "theme:\(theme.id)", title: "Theme: \(theme.name)", category: "Action") { [weak appState] in
-                appState?.themeStore.select(theme)
+                appState?.selectAppearance(theme)
             })
         }
 

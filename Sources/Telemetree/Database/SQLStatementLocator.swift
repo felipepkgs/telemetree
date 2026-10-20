@@ -70,6 +70,21 @@ enum SQLStatementLocator {
         return all.last(where: { $0.range.location <= location }) ?? all.first
     }
 
+    static func maskingLiteralsAndComments(in sql: String) -> String {
+        let fullRange = NSRange(location: 0, length: (sql as NSString).length)
+        let ranges = maskedRanges(in: sql, fullRange: fullRange)
+        let masked = NSMutableString(string: sql)
+        let source = sql as NSString
+        for range in ranges {
+            let replacement = NSMutableString(string: String(repeating: " ", count: range.length))
+            for offset in 0..<range.length where source.character(at: range.location + offset) == 10 {
+                replacement.replaceCharacters(in: NSRange(location: offset, length: 1), with: "\n")
+            }
+            masked.replaceCharacters(in: range, with: replacement as String)
+        }
+        return masked as String
+    }
+
     private static func append(_ range: NSRange, nsString: NSString, to result: inout [Statement]) {
         let text = nsString.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }

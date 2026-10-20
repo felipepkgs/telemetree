@@ -11,8 +11,7 @@ struct ConnectionProfile: Identifiable, Codable, Hashable {
     var useSSL: Bool = false
     /// SQLite only — path to the .sqlite/.db file. Unused for other engines.
     var filePath: String = ""
-    /// Sidebar accent color — same LabelColor already used for queries/
-    /// snippets, so a prod connection can't be mistaken for staging.
+    /// Sidebar accent color, so production can't be mistaken for staging.
     var labelColor: LabelColor?
 
     init(

@@ -2,10 +2,7 @@ import AppKit
 
 /// Shared visual constants for the app's secondary chrome — dialogs
 /// (New Connection, Save Query As, About) and standalone popups
-/// (CompletionPopup). Deliberately NOT used by Theme.swift/ThemeStore or
-/// anything that reads `theme.barFillPaint`/`barBorder` — the Vapor
-/// theme family is the app's own deliberate branding for the main
-/// editor/toolbar/tab chrome and stays exactly as it is.
+/// (CompletionPopup); app chrome uses ThemeStore's light/dark palette.
 ///
 /// Loosely modeled on shadcn/ui's design language — a small consistent
 /// radius scale, subtle 1px borders over shadows, a restrained neutral

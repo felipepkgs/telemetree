@@ -11,8 +11,6 @@ final class SidebarNode {
         case table(ConnectionProfile, database: String, table: DatabaseTable)
         case queryFolder(QueryFolder)
         case queryDocument(QueryDocument)
-        case snippetFolder(SnippetFolder)
-        case snippet(Snippet)
         case placeholder(String)
     }
 
@@ -33,8 +31,6 @@ final class SidebarNode {
         case .connection(let profile): return "conn:\(profile.id)"
         case .queryFolder(let folder): return "qfolder:\(folder.id)"
         case .queryDocument(let document): return "doc:\(document.id)"
-        case .snippetFolder(let folder): return "sfolder:\(folder.id)"
-        case .snippet(let snippet): return "snippet:\(snippet.id)"
         default: return nil
         }
     }
@@ -47,16 +43,14 @@ final class SidebarNode {
         case .table(_, _, let table): return table.name
         case .queryFolder(let folder): return folder.name
         case .queryDocument(let document): return document.name
-        case .snippetFolder(let folder): return folder.name
-        case .snippet(let snippet): return snippet.name
         case .placeholder(let text): return text
         }
     }
 
     var isExpandable: Bool {
         switch kind {
-        case .sectionHeader, .connection, .database, .queryFolder, .snippetFolder: return true
-        case .table, .queryDocument, .snippet, .placeholder: return false
+        case .sectionHeader, .connection, .database, .queryFolder: return true
+        case .table, .queryDocument, .placeholder: return false
         }
     }
 

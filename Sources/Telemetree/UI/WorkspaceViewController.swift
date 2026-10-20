@@ -6,11 +6,13 @@ import AppKit
 final class WorkspaceViewController: NSViewController {
     private let appState: AppState
     private let tabBar: DocumentTabBarView
+    private let statusBar: WorkspaceStatusBarView
     private let splitViewController = NSSplitViewController()
 
     init(appState: AppState) {
         self.appState = appState
         self.tabBar = DocumentTabBarView(appState: appState)
+        self.statusBar = WorkspaceStatusBarView(appState: appState)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -40,6 +42,7 @@ final class WorkspaceViewController: NSViewController {
         addChild(splitViewController)
 
         tabBar.translatesAutoresizingMaskIntoConstraints = false
+        statusBar.translatesAutoresizingMaskIntoConstraints = false
         let splitContainerView = splitViewController.view
         splitContainerView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -50,12 +53,13 @@ final class WorkspaceViewController: NSViewController {
         view.addSubview(tabBar)
         view.addSubview(divider)
         view.addSubview(splitContainerView)
+        view.addSubview(statusBar)
 
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: view.topAnchor),
             tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tabBar.heightAnchor.constraint(equalToConstant: 30),
+            tabBar.heightAnchor.constraint(equalToConstant: 32),
 
             divider.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -64,7 +68,11 @@ final class WorkspaceViewController: NSViewController {
             splitContainerView.topAnchor.constraint(equalTo: divider.bottomAnchor),
             splitContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             splitContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            splitContainerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            splitContainerView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            statusBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            statusBar.heightAnchor.constraint(equalToConstant: 28)
         ])
     }
 }

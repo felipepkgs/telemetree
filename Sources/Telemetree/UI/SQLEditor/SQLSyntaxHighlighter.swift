@@ -41,7 +41,7 @@ final class SQLSyntaxHighlighter: NSObject, NSTextStorageDelegate {
         NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
     }
 
-    init(font: NSFont? = nil, theme: SyntaxTheme = .default) {
+    init(font: NSFont? = nil, theme: SyntaxTheme = .githubDark) {
         self.font = font ?? FontLibrary.mono(12)
         self.theme = theme
     }
