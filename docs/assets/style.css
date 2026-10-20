@@ -104,6 +104,11 @@ figcaption span{color:var(--muted)}
 .download{display:flex;align-items:center;justify-content:space-between;gap:36px}
 .download-copy{max-width:650px}
 .download-copy h2{margin-bottom:10px}
+.homebrew-install{margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}
+.homebrew-install p{margin:0;color:var(--text);font-size:13px;font-weight:500}
+.homebrew-install pre{overflow-x:auto;margin:10px 0;padding:12px 14px;border:1px solid var(--line);border-radius:6px;background:var(--editor);color:#d8deea;font:12px/1.8 var(--mono)}
+.homebrew-install>a{display:inline-block;margin-right:12px;color:var(--accent);font-size:12px;text-decoration:underline;text-underline-offset:3px}
+.homebrew-install>span{color:var(--quiet);font-size:12px}
 .download-actions{display:flex;flex-direction:column;align-items:flex-start;gap:14px;flex:none}
 footer{border-top:1px solid var(--line);padding:25px 0 30px;color:var(--quiet);font-size:12px}
 .footer-inner{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
