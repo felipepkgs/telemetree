@@ -96,9 +96,37 @@ final class MySQLDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first?.displayString }
     }
 
+    func tableColumns(table: String, inDatabase database: String) async throws -> [DatabaseColumn] {
+        let result = try await execute(sql: "SHOW COLUMNS FROM \(DatabaseEngine.mysql.quoteIdentifier(database)).\(DatabaseEngine.mysql.quoteIdentifier(table))")
+        // Field, Type, Null, Key, Default, Extra
+        return result.rows.compactMap { row in
+            guard row.count > 4 else { return nil }
+            return DatabaseColumn(
+                name: row[0].displayString,
+                type: row[1].displayString,
+                isNullable: row[2].displayString.caseInsensitiveCompare("YES") == .orderedSame,
+                defaultValue: row[4].isNull ? nil : row[4].displayString
+            )
+        }
+    }
+
     func tableDefinition(table: String, inDatabase database: String) async throws -> String {
         let result = try await execute(sql: "SHOW CREATE TABLE \(DatabaseEngine.mysql.quoteIdentifier(database)).\(DatabaseEngine.mysql.quoteIdentifier(table))")
         return result.rows.first?.last?.displayString ?? "No definition available."
+    }
+
+    func indexes(table: String, inDatabase database: String) async throws -> [DatabaseIndex] {
+        let result = try await execute(sql: "SHOW INDEX FROM \(DatabaseEngine.mysql.quoteIdentifier(database)).\(DatabaseEngine.mysql.quoteIdentifier(table))")
+        // Non_unique, Key_name, Seq_in_index, Column_name are 1, 2, 3, 4.
+        var grouped: [String: (unique: Bool, columns: [(Int, String)])] = [:]
+        for row in result.rows where row.count > 4 {
+            let name = row[2].displayString
+            guard name != "PRIMARY" else { continue }
+            grouped[name, default: (row[1].displayString == "0", [])].columns.append((Int(row[3].displayString) ?? 0, row[4].displayString))
+        }
+        return grouped.map { name, value in
+            DatabaseIndex(name: name, columns: value.columns.sorted { $0.0 < $1.0 }.map(\.1), isUnique: value.unique)
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {

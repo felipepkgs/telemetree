@@ -31,6 +31,23 @@ struct DatabaseTable: Identifiable, Hashable {
     let name: String
 }
 
+/// A column as declared in the database schema. Keeping this separate from
+/// QueryResult means the structure inspector can present engine-neutral
+/// metadata instead of trying to parse a CREATE TABLE string.
+struct DatabaseColumn: Equatable {
+    let name: String
+    let type: String
+    let isNullable: Bool
+    let defaultValue: String?
+}
+
+/// One named index and its columns in index order.
+struct DatabaseIndex: Equatable {
+    let name: String
+    let columns: [String]
+    let isUnique: Bool
+}
+
 /// One foreign key constraint on a table — the local column and what it
 /// points at. Powers click-to-navigate in the results grid; only ever
 /// read, never used to build a WHERE clause on its own table, so no
@@ -68,7 +85,11 @@ protocol DatabaseConnection: AnyObject {
     func listDatabases() async throws -> [String]
     func listTables(inDatabase database: String) async throws -> [DatabaseTable]
     func listColumns(table: String, inDatabase database: String) async throws -> [String]
+    /// Rich column metadata for the table structure inspector.
+    func tableColumns(table: String, inDatabase database: String) async throws -> [DatabaseColumn]
     func tableDefinition(table: String, inDatabase database: String) async throws -> String
+    /// Indexes excluding the primary key (which is represented separately).
+    func indexes(table: String, inDatabase database: String) async throws -> [DatabaseIndex]
     /// Primary key column names, in composite-key order — empty if the
     /// table has none. Used to gate inline cell editing in the results
     /// grid: without a real primary key there's no safe way to scope an

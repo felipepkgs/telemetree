@@ -126,10 +126,39 @@ final class SQLiteDatabaseConnection: DatabaseConnection, @unchecked Sendable {
         return result.rows.compactMap { $0.count > 1 ? $0[1].displayString : nil }
     }
 
+    func tableColumns(table: String, inDatabase database: String) async throws -> [DatabaseColumn] {
+        let result = try await execute(sql: "PRAGMA table_info(\(quotedIdentifier(table)))")
+        // cid, name, type, notnull, dflt_value, pk
+        return result.rows.compactMap { row in
+            guard row.count > 5 else { return nil }
+            return DatabaseColumn(
+                name: row[1].displayString,
+                type: row[2].displayString.isEmpty ? "—" : row[2].displayString,
+                isNullable: row[3].displayString != "1" && row[5].displayString == "0",
+                defaultValue: row[4].isNull ? nil : row[4].displayString
+            )
+        }
+    }
+
     func tableDefinition(table: String, inDatabase database: String) async throws -> String {
         let escapedTable = table.replacingOccurrences(of: "'", with: "''")
         let result = try await execute(sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '\(escapedTable)'")
         return result.rows.first?.first?.displayString ?? "No definition available."
+    }
+
+    func indexes(table: String, inDatabase database: String) async throws -> [DatabaseIndex] {
+        let indexList = try await execute(sql: "PRAGMA index_list(\(quotedIdentifier(table)))")
+        // seq, name, unique, origin, partial. `origin == pk` is already
+        // shown in the primary-key section of the inspector.
+        var indexes: [DatabaseIndex] = []
+        for row in indexList.rows where row.count > 3 && row[3].displayString != "pk" {
+            let name = row[1].displayString
+            let columns = try await execute(sql: "PRAGMA index_info(\(quotedIdentifier(name)))")
+                .rows
+                .compactMap { $0.count > 2 ? $0[2].displayString : nil }
+            indexes.append(DatabaseIndex(name: name, columns: columns, isUnique: row[2].displayString == "1"))
+        }
+        return indexes
     }
 
     func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {
