@@ -19,6 +19,7 @@
       <div class="nav-links">
         <a href="#workflow">How it works</a>
         <a href="#features">Features</a>
+        <a href="#comparison">Compared</a>
         <a href="https://github.com/felipepkgs/telemetree/releases/latest">Releases</a>
         <a class="nav-github" href="https://github.com/felipepkgs/telemetree">GitHub <span aria-hidden="true">↗</span></a>
       </div>
@@ -73,15 +74,41 @@
     <section id="features" class="features section">
       <div class="wrap">
         <div class="section-intro">
-          <h2>Built for careful, repeatable database work.</h2>
-          <p>The everyday tools are close at hand. Risky actions are deliberate.</p>
+          <h2>A database workspace that remembers the work.</h2>
+          <p>Useful SQL stays organized, execution stays scoped, and the active schema informs the tools around it.</p>
         </div>
         <div class="feature-columns">
-          <article><h3>Schema-aware SQL</h3><p>SQL completion uses the active database schema for table and column suggestions. Format the current statement or inspect a table structure without losing your place.</p></article>
-          <article><h3>Execution with guardrails</h3><p>Statement-aware execution limits ⌘Return to the current statement or selection. Destructive statements ask for macOS authentication before they run.</p></article>
-          <article><h3>Results you can work with</h3><p>Paginated rows, sorting, CSV/JSON export, copy, and guarded inline editing for eligible primary-key tables.</p></article>
-          <article><h3>Native by design</h3><p>Built with Swift and AppKit. Credentials use macOS Keychain; query documents stay local. No telemetry, cloud sync, or account.</p></article>
+          <article><h3>Queries become documents</h3><p>Name and organize ongoing SQL in the sidebar. Documents persist across launches; temporary table browsing stays temporary.</p></article>
+          <article><h3>Execution stays scoped</h3><p>⌘Return runs the selected SQL or the statement under the cursor. Destructive statements pause for Touch ID or your Mac password.</p></article>
+          <article><h3>Assistance knows your schema</h3><p>Search Everywhere and SQL completion use the active database's tables and columns. Format or inspect structure without losing your place.</p></article>
+          <article><h3>Results are ready to use</h3><p>Page through large results, sort, copy, export CSV or JSON, and edit eligible rows with a primary-key check.</p></article>
         </div>
+      </div>
+    </section>
+
+    <section id="comparison" class="comparison section" aria-labelledby="comparison-title">
+      <div class="wrap">
+        <div class="section-intro">
+          <h2 id="comparison-title">Where Telemetree actually differs.</h2>
+          <p>Not a feature-count contest. DataGrip and DBeaver support far more engines and tooling; this is about the shape of the everyday workflow.</p>
+        </div>
+        <p id="comparison-scroll-hint" class="comparison-scroll-hint">Scroll horizontally to compare all four clients.</p>
+        <div class="comparison-table-wrap" role="region" aria-label="Product comparison" aria-describedby="comparison-scroll-hint" tabindex="0">
+          <table class="comparison-table">
+            <thead>
+              <tr><th scope="col">Workflow</th><th scope="col">Telemetree</th><th scope="col">TablePlus</th><th scope="col">DataGrip</th><th scope="col">DBeaver</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">App approach</th><td>Swift + AppKit</td><td>Native macOS</td><td>JVM / IntelliJ platform</td><td>Java / cross-platform</td></tr>
+              <tr><th scope="row">Query organization</th><td>Named documents in the sidebar</td><td>Saved queries and SQL tabs</td><td>Query files, consoles, and scratches</td><td>Saved SQL scripts and consoles</td></tr>
+              <tr><th scope="row">Destructive-query safeguard</th><td>Touch ID or password before DELETE, DROP, TRUNCATE, and UPDATE</td><td>Safe Mode confirmation</td><td>Confirmation for dropping database objects</td><td>Optional confirmation by connection type</td></tr>
+              <tr><th scope="row">MySQL, PostgreSQL, SQLite</th><td><span class="comparison-yes">✓</span></td><td><span class="comparison-yes">✓</span></td><td><span class="comparison-yes">✓</span></td><td><span class="comparison-yes">✓</span></td></tr>
+              <tr><th scope="row">Source available publicly</th><td><a href="https://github.com/felipepkgs/telemetree">Repository</a></td><td>—</td><td>—</td><td><a href="https://github.com/dbeaver/dbeaver">Community Edition</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="comparison-note">Query files and saved scripts exist in other tools too; Telemetree makes named documents the primary workspace. “Source available” describes public code, not a license grant. Telemetree does not yet include a LICENSE file.</p>
+        <p class="comparison-sources">Product details: <a href="https://tableplus.com/docs/query-editor/query-history">TablePlus</a> · <a href="https://www.jetbrains.com/help/datagrip/code-editor.html">DataGrip</a> · <a href="https://dbeaver.com/docs/dbeaver/SQL-Editor/">DBeaver</a></p>
       </div>
     </section>
 

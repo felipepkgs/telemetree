@@ -65,6 +65,24 @@ h1 span{color:var(--accent)}
 .feature-columns{display:grid;grid-template-columns:1fr 1fr;column-gap:72px;row-gap:34px}
 .feature-columns article{padding-top:18px;border-top:1px solid #384153}
 .feature-columns h3{color:var(--text)}
+.comparison{background:#141923;border-block:1px solid var(--line)}
+.comparison .section-intro{margin-bottom:32px}
+.comparison-scroll-hint{margin:0 0 10px;color:var(--quiet);font-size:12px}
+.comparison-table-wrap{overflow-x:auto;border-block:1px solid var(--line)}
+.comparison-table-wrap:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.comparison-table{width:100%;min-width:900px;border-collapse:collapse;font-size:13px;line-height:1.5}
+.comparison-table th,.comparison-table td{padding:15px 14px;border-bottom:1px solid rgba(157,167,186,.16);text-align:left;vertical-align:top}
+.comparison-table thead th{color:var(--quiet);font-size:11px;font-weight:500;letter-spacing:.04em}
+.comparison-table thead th:not(:first-child){text-align:center}
+.comparison-table tbody th{width:19%;color:var(--text);font-weight:500}
+.comparison-table td{width:20%;color:var(--muted)}
+.comparison-table tr:last-child th,.comparison-table tr:last-child td{border-bottom:0}
+.comparison-table th:nth-child(2),.comparison-table td:nth-child(2){background:rgba(162,175,255,.055)}
+.comparison-table thead th:nth-child(2){color:var(--accent)}
+.comparison-table td a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.comparison-yes{color:var(--green);font-size:16px}
+.comparison-note,.comparison-sources{max-width:80ch;margin:16px 0 0;color:var(--quiet);font-size:12px;line-height:1.6}
+.comparison-sources a{color:var(--muted);text-decoration:underline;text-underline-offset:3px}
 .proof .section-intro{margin-bottom:32px}
 .carousel-track{display:flex;gap:24px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:thin;scrollbar-color:#46516a transparent;padding:0 0 10px}
 .carousel-item{flex:0 0 84%;min-width:0;scroll-snap-align:start;margin:0}
