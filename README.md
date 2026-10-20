@@ -2,7 +2,7 @@
 
 > Your queries are work, not scratch paper.
 
-<img width="1800" height="1200" alt="image" src="https://github.com/user-attachments/assets/109733ff-5f1c-4575-bea4-29698e758cf4" />
+![Telemetree workspace showing a saved SQL document and MySQL query results](docs/assets/screenshots/workspace.png)
 
 
 Telemetree is a native macOS database IDE for MySQL, PostgreSQL and SQLite,

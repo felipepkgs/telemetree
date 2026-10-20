@@ -21,19 +21,30 @@ document.querySelectorAll('.carousel').forEach(function (carousel) {
     var closest = 0;
     var closestDist = Infinity;
     items.forEach(function (item, i) {
-      var dist = Math.abs(item.offsetLeft - track.scrollLeft);
+      var dist = Math.abs(targetScrollLeft(item) - track.scrollLeft);
       if (dist < closestDist) { closestDist = dist; closest = i; }
     });
     return closest;
   }
 
+  function targetScrollLeft(item) {
+    return track.scrollLeft + item.getBoundingClientRect().left - track.getBoundingClientRect().left;
+  }
+
   function goTo(i) {
-    items[i].scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    track.scrollTo({
+      left: targetScrollLeft(items[i]),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    });
   }
 
   function update() {
     var i = currentIndex();
-    dots.forEach(function (dot, di) { dot.classList.toggle('active', di === i); });
+    dots.forEach(function (dot, di) {
+      dot.classList.toggle('active', di === i);
+      if (di === i) dot.setAttribute('aria-current', 'true');
+      else dot.removeAttribute('aria-current');
+    });
     prevBtn.disabled = i === 0;
     nextBtn.disabled = i === items.length - 1;
   }
@@ -41,5 +52,10 @@ document.querySelectorAll('.carousel').forEach(function (carousel) {
   prevBtn.addEventListener('click', function () { goTo(Math.max(0, currentIndex() - 1)); });
   nextBtn.addEventListener('click', function () { goTo(Math.min(items.length - 1, currentIndex() + 1)); });
   track.addEventListener('scroll', function () { window.requestAnimationFrame(update); }, { passive: true });
+  track.addEventListener('keydown', function (event) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    goTo(Math.max(0, Math.min(items.length - 1, currentIndex() + (event.key === 'ArrowRight' ? 1 : -1))));
+  });
   update();
 });
