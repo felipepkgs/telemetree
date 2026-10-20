@@ -110,6 +110,25 @@ final class PostgresDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first?.displayString }
     }
 
+    func tableColumns(table: String, inDatabase database: String) async throws -> [DatabaseColumn] {
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let result = try await execute(sql: """
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = '\(escapedTable)'
+            ORDER BY ordinal_position
+            """)
+        return result.rows.compactMap { row in
+            guard row.count > 3 else { return nil }
+            return DatabaseColumn(
+                name: row[0].displayString,
+                type: row[1].displayString,
+                isNullable: row[2].displayString == "YES",
+                defaultValue: row[3].isNull ? nil : row[3].displayString
+            )
+        }
+    }
+
     func tableDefinition(table: String, inDatabase database: String) async throws -> String {
         let escapedTable = table.replacingOccurrences(of: "'", with: "''")
         let result = try await execute(sql: """
@@ -121,6 +140,30 @@ final class PostgresDatabaseConnection: DatabaseConnection {
         return result.rows.map { row in
             "\(row[0].displayString)  \(row[1].displayString)  \(row[2].displayString == "YES" ? "NULL" : "NOT NULL")\(row[3].isNull ? "" : "  DEFAULT \(row[3].displayString)")"
         }.joined(separator: "\n")
+    }
+
+    func indexes(table: String, inDatabase database: String) async throws -> [DatabaseIndex] {
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let result = try await execute(sql: """
+            SELECT i.relname, ix.indisunique, array_agg(a.attname ORDER BY keys.ordinality)
+            FROM pg_class t
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            JOIN pg_index ix ON ix.indrelid = t.oid
+            JOIN pg_class i ON i.oid = ix.indexrelid
+            JOIN unnest(ix.indkey) WITH ORDINALITY AS keys(attnum, ordinality) ON true
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = keys.attnum
+            WHERE n.nspname = 'public' AND t.relname = '\(escapedTable)' AND NOT ix.indisprimary
+            GROUP BY i.relname, ix.indisunique
+            ORDER BY i.relname
+            """)
+        return result.rows.compactMap { row in
+            guard row.count > 2 else { return nil }
+            let columns = row[2].displayString
+                .trimmingCharacters(in: CharacterSet(charactersIn: "{}"))
+                .split(separator: ",")
+                .map(String.init)
+            return DatabaseIndex(name: row[0].displayString, columns: columns, isUnique: row[1].displayString == "t")
+        }
     }
 
     func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {

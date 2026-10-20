@@ -17,6 +17,14 @@ private struct LabelAssignment {
     let color: LabelColor?
 }
 
+private struct TableStructureTarget {
+    let profile: ConnectionProfile
+    let database: String
+    let table: String
+
+    var key: String { "\(profile.id.uuidString):\(database):\(table)" }
+}
+
 private final class SidebarSelectionRowView: NSTableRowView {
     private let palette: DesignTokens.Palette
 
@@ -46,6 +54,7 @@ final class SidebarViewController: NSViewController {
     private var activeTablesKey: String?
     private var newConnectionController: NewConnectionWindowController?
     private var sessionMonitorControllers: [UUID: SessionMonitorWindowController] = [:]
+    private var structureControllers: [String: TableStructureWindowController] = [:]
 
     private let connectionsHeader = SidebarNode(kind: .sectionHeader("Connections"))
     private let queriesHeader = SidebarNode(kind: .sectionHeader("Queries"))
@@ -565,6 +574,25 @@ final class SidebarViewController: NSViewController {
         outlineView.reloadData()
     }
 
+    @objc private func showTableStructure(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? TableStructureTarget else { return }
+        if let controller = structureControllers[target.key] {
+            controller.showWindow(nil)
+            controller.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let controller = TableStructureWindowController(
+            appState: appState,
+            profile: target.profile,
+            database: target.database,
+            table: target.table
+        )
+        structureControllers[target.key] = controller
+        controller.window?.delegate = self
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
+
 }
 
 extension SidebarViewController: NSMenuDelegate {
@@ -604,9 +632,18 @@ extension SidebarViewController: NSMenuDelegate {
             labelItem.submenu = buildLabelMenu(for: .queryFolder(folder.id))
             menu.addItem(labelItem)
             menu.addItem(menuItem("Delete Folder", action: #selector(deleteQueryFolder(_:)), representedObject: folder))
-        case .sectionHeader, .table, .placeholder:
+        case .table(let profile, let database, let table):
+            let target = TableStructureTarget(profile: profile, database: database, table: table.name)
+            menu.addItem(menuItem("Show Structure…", action: #selector(showTableStructure(_:)), representedObject: target))
+        case .sectionHeader, .placeholder:
             break
         }
+    }
+}
+
+extension SidebarViewController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        structureControllers = structureControllers.filter { $0.value.window !== notification.object as? NSWindow }
     }
 }
 
