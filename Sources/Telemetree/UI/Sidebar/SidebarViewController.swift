@@ -17,10 +17,33 @@ private struct LabelAssignment {
     let color: LabelColor?
 }
 
+private final class SidebarSelectionRowView: NSTableRowView {
+    private let palette: DesignTokens.Palette
+
+    init(palette: DesignTokens.Palette) {
+        self.palette = palette
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        let selectionRect = bounds.insetBy(dx: 4, dy: 1)
+        palette.selection.setFill()
+        NSBezierPath(roundedRect: selectionRect, xRadius: 5, yRadius: 5).fill()
+        palette.accent.setFill()
+        NSBezierPath(roundedRect: NSRect(x: selectionRect.minX, y: selectionRect.minY + 3, width: 2, height: selectionRect.height - 6), xRadius: 1, yRadius: 1).fill()
+    }
+}
+
 @MainActor
 final class SidebarViewController: NSViewController {
     private let appState: AppState
     private var cancellables = Set<AnyCancellable>()
+    private var activeDocumentCancellables = Set<AnyCancellable>()
+    private var activeTables: [DatabaseTable] = []
+    private var activeTablesKey: String?
     private var newConnectionController: NewConnectionWindowController?
     private var sessionMonitorControllers: [UUID: SessionMonitorWindowController] = [:]
 
@@ -73,6 +96,10 @@ final class SidebarViewController: NSViewController {
     }
 
     private func applyTheme(_ theme: Theme) {
+        view.wantsLayer = true
+        view.layer?.backgroundColor = theme.palette.sidebar.cgColor
+        scrollView.drawsBackground = false
+        outlineView.backgroundColor = theme.palette.sidebar
         footer.layer?.backgroundColor = theme.barFill.cgColor
         footer.layer?.borderColor = theme.barBorder.cgColor
         footer.layer?.borderWidth = 1
@@ -173,8 +200,15 @@ final class SidebarViewController: NSViewController {
 
         appState.$activeDocumentID
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.outlineView.reloadData() }
+            .sink { [weak self] _ in self?.bindActiveDocument() }
             .store(in: &cancellables)
+
+        appState.connectionManager.$currentDatabases
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.loadActiveTables() }
+            .store(in: &cancellables)
+
+        bindActiveDocument()
 
         appState.themeStore.$current
             .receive(on: DispatchQueue.main)
@@ -204,13 +238,55 @@ final class SidebarViewController: NSViewController {
     private func rebuildConnectionsTree() {
         let existing = flattenExistingNodes(connectionsHeader.children)
         connectionsHeader.children = appState.connectionManager.profiles
-            .filter { searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) }
+            .filter { $0.id == appState.selectedProfile?.id }
             .map { profile -> SidebarNode in
             let node = existing["conn:\(profile.id)"] ?? SidebarNode(kind: .connection(profile))
             node.kind = .connection(profile)
+            let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
+            let tables = activeTables.filter { searchText.isEmpty || $0.name.localizedCaseInsensitiveContains(searchText) }
+            node.children = tables.map { SidebarNode(kind: .table(profile, database: database, table: $0)) }
+            node.childrenLoaded = true
             return node
             }
         outlineView.reloadItem(connectionsHeader, reloadChildren: true)
+        if let node = connectionsHeader.children?.first { outlineView.expandItem(node) }
+    }
+
+    private func bindActiveDocument() {
+        activeDocumentCancellables.removeAll()
+        appState.activeState?.$connectionProfileID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.loadActiveTables() }
+            .store(in: &activeDocumentCancellables)
+        loadActiveTables()
+    }
+
+    private func loadActiveTables() {
+        guard let profile = appState.selectedProfile,
+              let connection = appState.connectionManager.connection(for: profile.id) else {
+            activeTablesKey = nil
+            activeTables = []
+            rebuildConnectionsTree()
+            return
+        }
+        let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
+        let key = "\(profile.id)|\(database)|\(ObjectIdentifier(connection as AnyObject))"
+        guard activeTablesKey != key else { return }
+        activeTablesKey = key
+        activeTables = []
+        rebuildConnectionsTree()
+        Task {
+            do {
+                let tables = try await connection.listTables(inDatabase: database)
+                guard activeTablesKey == key else { return }
+                activeTables = tables
+                rebuildConnectionsTree()
+            } catch {
+                guard activeTablesKey == key else { return }
+                activeTables = []
+                rebuildConnectionsTree()
+            }
+        }
     }
 
     private func rebuildQueriesTree() {
@@ -272,11 +348,16 @@ final class SidebarViewController: NSViewController {
     }
 
     /// Forces a re-fetch even when already loaded — the hover "refresh"
-    /// button on connection/database rows uses this. Without it, a table
+    /// button on the connection row uses this. Without it, a table
     /// created/dropped elsewhere after the sidebar already expanded that
     /// node stayed invisible until the whole app relaunched, since
     /// loadChildrenIfNeeded only ever fetches once per node.
     private func refreshChildren(for node: SidebarNode) {
+        if case .connection = node.kind {
+            activeTablesKey = nil
+            loadActiveTables()
+            return
+        }
         node.childrenLoaded = true
         fetchChildren(for: node)
         if !outlineView.isItemExpanded(node) {
@@ -287,31 +368,7 @@ final class SidebarViewController: NSViewController {
     private func fetchChildren(for node: SidebarNode) {
         switch node.kind {
         case .connection(let profile):
-            Task {
-                if !appState.connectionManager.connectedIDs.contains(profile.id) {
-                    await appState.connectionManager.connect(profile)
-                }
-                guard let connection = appState.connectionManager.connection(for: profile.id) else {
-                    let message = appState.connectionManager.connectionErrors[profile.id] ?? "Failed to connect"
-                    node.children = [SidebarNode(kind: .placeholder(message))]
-                    outlineView.reloadItem(node, reloadChildren: true)
-                    return
-                }
-                let systemDatabases: Set<String> = ["information_schema", "performance_schema", "mysql", "sys"]
-                let listedDatabases = (try? await connection.listDatabases())?.filter { !systemDatabases.contains($0) } ?? []
-                let databases = profile.engine == .postgres
-                    ? listedDatabases.filter { $0 == profile.database }
-                    : listedDatabases
-                node.children = databases.map { SidebarNode(kind: .database(profile, name: $0)) }
-                outlineView.reloadItem(node, reloadChildren: true)
-            }
-        case .database(let profile, let database):
-            Task {
-                guard let connection = appState.connectionManager.connection(for: profile.id) else { return }
-                let tables = (try? await connection.listTables(inDatabase: database)) ?? []
-                node.children = tables.map { SidebarNode(kind: .table(profile, database: database, table: $0)) }
-                outlineView.reloadItem(node, reloadChildren: true)
-            }
+            if appState.selectedProfile?.id == profile.id { loadActiveTables() }
         case .sectionHeader, .queryFolder, .table, .queryDocument, .placeholder:
             break
         }
@@ -319,7 +376,7 @@ final class SidebarViewController: NSViewController {
 
     private func refreshAction(for node: SidebarNode) -> (() -> Void)? {
         switch node.kind {
-        case .connection, .database:
+        case .connection:
             return { [weak self] in self?.refreshChildren(for: node) }
         default:
             return nil
@@ -547,7 +604,7 @@ extension SidebarViewController: NSMenuDelegate {
             labelItem.submenu = buildLabelMenu(for: .queryFolder(folder.id))
             menu.addItem(labelItem)
             menu.addItem(menuItem("Delete Folder", action: #selector(deleteQueryFolder(_:)), representedObject: folder))
-        case .sectionHeader, .database, .table, .placeholder:
+        case .sectionHeader, .table, .placeholder:
             break
         }
     }
@@ -570,6 +627,10 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         (item as? SidebarNode)?.isGroupHeader ?? false
     }
 
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+        SidebarSelectionRowView(palette: appState.themeStore.current.palette)
+    }
+
     func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
         !((item as? SidebarNode)?.isGroupHeader ?? false)
     }
@@ -587,8 +648,6 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             appState.setActiveConnection(profile.id)
         case .table(let profile, let database, let table):
             appState.browseTable(profile: profile, database: database, table: table.name)
-        case .database(let profile, let database):
-            appState.selectDatabase(database, profileID: profile.id)
         case .queryDocument(let document):
             appState.openDocument(document.id)
         case .sectionHeader, .queryFolder, .placeholder:
@@ -730,7 +789,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                 trashButton.widthAnchor.constraint(equalToConstant: 14),
                 trashButton.heightAnchor.constraint(equalToConstant: 14),
 
-                // Same trailing slot as trashButton — connection/database
+                // Same trailing slot as trashButton — connection
                 // rows never show a delete button there (deleteAction
                 // returns nil for them), so there's no conflict.
                 refreshButton.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
@@ -743,7 +802,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         labelDotView.layer?.cornerRadius = 4
 
         textField.stringValue = node.title
-        textField.textColor = .labelColor
+        textField.textColor = appState.themeStore.current.palette.text
         textField.isEditable = false
         imageView.isHidden = false
         dotView.isHidden = true
@@ -768,7 +827,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                 if hovering {
                     labelDotView?.isHidden = true
                 } else if hasLabelColor {
-                    // Same fix as the connection/database refresh-button
+                    // Same fix as the connection refresh-button
                     // branch below: without restoring this, a labeled
                     // query/folder's color dot vanished for good
                     // after the first hover.
@@ -794,7 +853,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
                     // Restore whichever indicator this row actually
                     // shows once the hover-only refresh button hides
                     // again — previously only dotView (connection
-                    // status) did this, so a labeled connection/database
+                    // status) did this, so a labeled connection
                     // row's color dot silently vanished for good after
                     // the first hover.
                     if hasLabelColor { labelDotView?.isHidden = false }
@@ -811,6 +870,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         switch node.kind {
         case .sectionHeader:
             textField.font = FontLibrary.sans(11, weight: .semibold)
+            textField.textColor = appState.themeStore.current.palette.secondaryText
             imageView.isHidden = true
         case .connection(let profile):
             textField.font = FontLibrary.sans(12, weight: .bold)
@@ -819,10 +879,6 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             imageView.contentTintColor = nil
             dotView.isHidden = false
             dotView.isActive = connected
-        case .database:
-            textField.font = FontLibrary.sans(12)
-            imageView.image = AppIcon.database.image
-            imageView.contentTintColor = nil
         case .table:
             textField.font = FontLibrary.sans(12)
             imageView.image = AppIcon.table.image
@@ -835,9 +891,10 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         case .queryDocument(let document):
             let isActive = document.id == appState.activeDocumentID
             textField.font = isActive ? FontLibrary.sans(12, weight: .bold) : FontLibrary.sans(12)
+            if isActive { textField.textColor = appState.themeStore.current.palette.accent }
             textField.isEditable = true
             imageView.image = AppIcon.document.image
-            imageView.contentTintColor = isActive ? .controlAccentColor : nil
+            imageView.contentTintColor = isActive ? appState.themeStore.current.palette.accent : nil
         case .placeholder:
             textField.font = FontLibrary.sans(11)
             textField.textColor = .secondaryLabelColor
@@ -845,7 +902,7 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
             imageView.contentTintColor = nil
         }
 
-        // The row's icon (connection/database/table/...), the connection
+        // The row's icon (connection/table/...), the connection
         // dot, and the label-color dot all convey state visually with no
         // text equivalent — nothing here read anything useful to VoiceOver
         // before. One accessibility label per row beats making every dot
@@ -863,8 +920,6 @@ extension SidebarViewController: NSOutlineViewDataSource, NSOutlineViewDelegate,
         case .connection(let profile):
             parts.append("connection")
             parts.append(appState.connectionManager.connectedIDs.contains(profile.id) ? "connected" : "not connected")
-        case .database:
-            parts.append("database")
         case .table:
             parts.append("table")
         case .queryFolder:

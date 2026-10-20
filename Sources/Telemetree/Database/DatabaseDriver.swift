@@ -64,9 +64,11 @@ enum DatabaseError: LocalizedError {
 /// never depends on a concrete driver.
 protocol DatabaseConnection: AnyObject {
     func execute(sql: String) async throws -> QueryResult
+    func selectDatabase(_ database: String) async throws
     func listDatabases() async throws -> [String]
     func listTables(inDatabase database: String) async throws -> [DatabaseTable]
     func listColumns(table: String, inDatabase database: String) async throws -> [String]
+    func tableDefinition(table: String, inDatabase database: String) async throws -> String
     /// Primary key column names, in composite-key order — empty if the
     /// table has none. Used to gate inline cell editing in the results
     /// grid: without a real primary key there's no safe way to scope an
@@ -85,6 +87,12 @@ protocol DatabaseConnection: AnyObject {
     /// feature off for SQLite connections instead of calling this at all.
     func activeSessions() async throws -> QueryResult
     func close() async
+}
+
+extension DatabaseConnection {
+    func selectDatabase(_ database: String) async throws {
+        throw DatabaseError.queryFailed("This connection cannot switch databases.")
+    }
 }
 
 /// Opens connections for a given engine from a `ConnectionProfile`.

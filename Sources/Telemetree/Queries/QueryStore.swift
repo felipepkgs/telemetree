@@ -6,6 +6,7 @@ import Foundation
 @MainActor
 final class QueryStore: ObservableObject {
     @Published private(set) var documents: [QueryDocument] = []
+    @Published private(set) var temporaryDocuments: [QueryDocument] = []
     @Published private(set) var folders: [QueryFolder] = []
 
     nonisolated static let untitledQueryName = "Untitled Query"
@@ -13,16 +14,38 @@ final class QueryStore: ObservableObject {
     private let storeURL: URL
     private var pendingSave: DispatchWorkItem?
 
-    init() {
+    init(storeURL: URL? = nil) {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Telemetree", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        storeURL = dir.appendingPathComponent("queries.json")
+        self.storeURL = storeURL ?? dir.appendingPathComponent("queries.json")
         load()
     }
 
     func document(id: UUID) -> QueryDocument? {
-        documents.first { $0.id == id }
+        documents.first { $0.id == id } ?? temporaryDocuments.first { $0.id == id }
+    }
+
+    func isTemporaryDocument(_ documentID: UUID) -> Bool {
+        temporaryDocuments.contains { $0.id == documentID }
+    }
+
+    @discardableResult
+    func createTemporaryDocument(name: String, connectionProfileID: UUID? = nil) -> QueryDocument {
+        let document = QueryDocument(name: name, connectionProfileID: connectionProfileID)
+        temporaryDocuments.append(document)
+        return document
+    }
+
+    func saveTemporaryDocument(_ documentID: UUID, name: String, folderID: UUID?) {
+        guard let index = temporaryDocuments.firstIndex(where: { $0.id == documentID }) else { return }
+        var document = temporaryDocuments.remove(at: index)
+        document.name = name
+        document.folderID = folderID
+        document.sortOrder = (documents.filter { $0.folderID == folderID }.map(\.sortOrder).max() ?? -1) + 1
+        document.updatedAt = Date()
+        documents.append(document)
+        saveSoon()
     }
 
     @discardableResult
@@ -35,22 +58,32 @@ final class QueryStore: ObservableObject {
     }
 
     func rename(_ documentID: UUID, to name: String) {
-        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
-        documents[index].name = name
-        saveSoon()
+        if let index = documents.firstIndex(where: { $0.id == documentID }) {
+            documents[index].name = name
+            saveSoon()
+        } else if let index = temporaryDocuments.firstIndex(where: { $0.id == documentID }) {
+            temporaryDocuments[index].name = name
+        }
     }
 
     func updateSQL(_ documentID: UUID, sql: String) {
-        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
-        documents[index].sql = sql
-        documents[index].updatedAt = Date()
-        saveSoon()
+        if let index = documents.firstIndex(where: { $0.id == documentID }) {
+            documents[index].sql = sql
+            documents[index].updatedAt = Date()
+            saveSoon()
+        } else if let index = temporaryDocuments.firstIndex(where: { $0.id == documentID }) {
+            temporaryDocuments[index].sql = sql
+            temporaryDocuments[index].updatedAt = Date()
+        }
     }
 
     func setConnection(_ documentID: UUID, connectionProfileID: UUID?) {
-        guard let index = documents.firstIndex(where: { $0.id == documentID }) else { return }
-        documents[index].connectionProfileID = connectionProfileID
-        saveSoon()
+        if let index = documents.firstIndex(where: { $0.id == documentID }) {
+            documents[index].connectionProfileID = connectionProfileID
+            saveSoon()
+        } else if let index = temporaryDocuments.firstIndex(where: { $0.id == documentID }) {
+            temporaryDocuments[index].connectionProfileID = connectionProfileID
+        }
     }
 
     func setLabelColor(_ documentID: UUID, color: LabelColor?) {
@@ -78,8 +111,10 @@ final class QueryStore: ObservableObject {
     }
 
     func delete(_ documentID: UUID) {
+        let previousCount = documents.count
         documents.removeAll { $0.id == documentID }
-        saveSoon()
+        temporaryDocuments.removeAll { $0.id == documentID }
+        if documents.count != previousCount { saveSoon() }
     }
 
     func move(_ documentID: UUID, toFolder folderID: UUID?) {

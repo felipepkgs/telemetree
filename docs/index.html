@@ -87,7 +87,7 @@
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.4"/><path d="M12 12l4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         </div>
         <h3>Command palette</h3>
-        <p><code class="mono">⌘⇧P</code> jumps straight to any query, connection, or action — arrow keys and return, no mouse required.</p>
+        <p><code class="mono">⌘⇧P</code> jumps to queries, connections, tables in the active database, or actions — arrow keys and return, no mouse required.</p>
       </div>
 
       <div class="card">
@@ -193,9 +193,9 @@
       <div class="carousel-track">
         <div class="carousel-item">
           <div class="frame">
-            <img src="assets/screenshots/pagination.png" alt="Results grid showing 500 rows from a plain SELECT with no LIMIT, and a Load More button in the status bar." width="900" height="600">
+            <img src="assets/screenshots/pagination.png" alt="Earlier Telemetree results grid screenshot showing bounded query results." width="900" height="600">
           </div>
-          <div class="showcase-cap"><strong>Large tables stay responsive.</strong> <span>A SELECT with no LIMIT pages in 500 rows at a time — Load More fetches the next page instead of pulling everything into memory.</span></div>
+          <div class="showcase-cap"><strong>Large tables stay responsive.</strong> <span>Current builds use numbered pages of 100 rows. This screenshot shows an earlier pagination design.</span></div>
         </div>
         <div class="carousel-item">
           <div class="frame">
@@ -243,8 +243,8 @@
           <li><strong>Three real database engines</strong>, not a MySQL-only client with the others faked — engine-specific identifier quoting, error translation, and schema browsing (Postgres has no cross-database <code class="mono">USE</code>, so that's handled honestly instead of papered over)</li>
           <li><strong>Query documents &amp; folders</strong> — persistent, tabbed, autosaved</li>
           <li><strong>SQL syntax highlighting</strong>, plus a custom completion popup: keywords; real table names after <code class="mono">FROM</code>/<code class="mono">JOIN</code>; real column names scoped to the statement's tables once a <code class="mono">FROM</code> exists; and, before one exists, qualified <code class="mono">table.column</code> suggestions across every known table — accepting one inserts the column and appends the matching <code class="mono">FROM</code> clause for you, cursor left exactly where you were typing. Tab-only accept.</li>
-          <li><strong>Last-clicked database as default</strong> (MySQL) — clicking a database in the sidebar runs a real <code class="mono">USE</code>, so unqualified table names resolve without <code class="mono">db.table</code> qualification</li>
-          <li><strong>Command palette</strong> (⌘⇧P) and sidebar search, sorted by most-used</li>
+          <li><strong>Explicit database selection</strong> — choose a connection and database before opening the workspace; switch again from the status bar or with <code class="mono">⌘⇧K</code>. MySQL selection runs a real <code class="mono">USE</code>.</li>
+          <li><strong>Command palette</strong> (⌘⇧P) and sidebar search include tables in the active database</li>
           <li><strong>Query history</strong> — searchable, capped, reopenable</li>
           <li><strong>Appearance</strong> — Light or Dark, with GitHub Light/Dark SQL colors</li>
           <li><strong>Destructive SQL guard</strong> — every DELETE/DROP/TRUNCATE/UPDATE requires Touch ID, no exceptions</li>
@@ -267,9 +267,9 @@
         </ul>
       </div>
       <div>
-        <h3 class="wip">Not built yet</h3>
+        <h3 class="wip">In progress</h3>
         <ul>
-          <li><strong>Light/Dark appearance</strong> — switchable native interface with matching GitHub SQL colors</li>
+          <li><strong>SQL IDE depth</strong> — richer diagnostics and dialect coverage remain work in progress; the formatter is intentionally conservative.</li>
         </ul>
       </div>
     </div>

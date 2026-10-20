@@ -34,6 +34,7 @@ final class SQLCompletionController {
         /// Non-nil only for a qualified "table.column" suggestion offered
         /// before a FROM exists — accepting it also appends that FROM.
         let impliedFromTable: String?
+        let detail: String
     }
 
     /// Real table names for the identifier position, real case, filtered
@@ -64,6 +65,11 @@ final class SQLCompletionController {
 
     init(textView: NSTextView) {
         self.textView = textView
+        popup.onAccept = { [weak self] index in
+            guard let self else { return }
+            self.popup.moveSelection(by: index - self.popup.selectedIndex)
+            self.acceptCompletion()
+        }
     }
 
     func textDidChange() {
@@ -124,20 +130,50 @@ final class SQLCompletionController {
     ]
 
     private static let tableReferenceRegex = try! NSRegularExpression(
-        pattern: #"\b(?:FROM|JOIN)\s+(?:(`?[A-Za-z_][A-Za-z0-9_]*`?)\s*\.\s*)?`?([A-Za-z_][A-Za-z0-9_]*)`?"#,
+        pattern: #"\b(?:FROM|JOIN)\s+(?:(\"[^\"]+\"|`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*)?(\"[^\"]+\"|`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)"#,
         options: .caseInsensitive
     )
 
+    private static let aliasRegex = try! NSRegularExpression(
+        pattern: #"\s+(?:AS\s+)?(\"[^\"]+\"|`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)"#,
+        options: .caseInsensitive
+    )
+
+    private static let aliasStopWords: Set<String> = ["where", "join", "inner", "left", "right", "full", "cross", "on", "group", "order", "limit", "having", "union", "set", "returning"]
+
+    private static func unquote(_ name: String) -> String {
+        guard let first = name.first, (first == "`" || first == "\"") else { return name }
+        return String(name.dropFirst().dropLast())
+    }
+
     static func tableReferences(in sql: String) -> [(name: String, range: NSRange, qualified: Bool)] {
-        let maskedSQL = SQLStatementLocator.maskingLiteralsAndComments(in: sql)
+        let maskedSQL = SQLStatementLocator.maskingLiteralsAndComments(in: sql, preserveDoubleQuotes: true)
         let source = sql as NSString
         let matches = tableReferenceRegex.matches(in: maskedSQL, range: NSRange(location: 0, length: (maskedSQL as NSString).length))
         return matches.compactMap { match in
             guard match.numberOfRanges > 2 else { return nil }
             let range = match.range(at: 2)
             guard range.location != NSNotFound else { return nil }
-            return (source.substring(with: range).trimmingCharacters(in: CharacterSet(charactersIn: "`")), range, match.range(at: 1).location != NSNotFound)
+            return (unquote(source.substring(with: range)), range, match.range(at: 1).location != NSNotFound)
         }
+    }
+
+    static func tableAliases(in sql: String, at caret: Int) -> [String: String] {
+        let scope = SQLStatementLocator.statement(containing: caret, in: sql)?.range
+        let masked = SQLStatementLocator.maskingLiteralsAndComments(in: sql, preserveDoubleQuotes: true) as NSString
+        let source = sql as NSString
+        var aliases: [String: String] = [:]
+        for match in tableReferenceRegex.matches(in: masked as String, range: NSRange(location: 0, length: masked.length)) {
+            if let scope, !NSLocationInRange(match.range.location, scope) { continue }
+            let table = unquote(source.substring(with: match.range(at: 2)))
+            aliases[table.lowercased()] = table
+            let suffix = NSRange(location: NSMaxRange(match.range), length: masked.length - NSMaxRange(match.range))
+            guard let alias = aliasRegex.firstMatch(in: masked as String, options: .anchored, range: suffix),
+                  alias.range.location == suffix.location else { continue }
+            let name = unquote(source.substring(with: alias.range(at: 1)))
+            if !aliasStopWords.contains(name.lowercased()) { aliases[name.lowercased()] = table }
+        }
+        return aliases
     }
 
     private func updateCompletions() {
@@ -146,6 +182,14 @@ final class SQLCompletionController {
             return
         }
         let caret = textView.selectedRange().location
+        if caret > 0 {
+            let source = textView.string as NSString
+            let masked = SQLStatementLocator.maskingLiteralsAndComments(in: textView.string) as NSString
+            if source.character(at: caret - 1) != masked.character(at: caret - 1) {
+                hide()
+                return
+            }
+        }
         let wordRange = currentWordRange(endingAt: caret)
         // Where to look for a preceding "FROM"/"JOIN"/etc: the start of
         // the word being typed, or the caret itself when there's no word
@@ -154,24 +198,31 @@ final class SQLCompletionController {
         // the space still finds "FROM").
         let identifierCheckLocation = wordRange?.location ?? caret
         let partial = wordRange.map { (textView.string as NSString).substring(with: $0).lowercased() } ?? ""
+        let qualifier = qualifierBeforeDot(at: identifierCheckLocation)
+        let aliases = Self.tableAliases(in: textView.string, at: caret)
 
         let candidates: [Candidate]
-        if precedingWordExpectsIdentifier(before: identifierCheckLocation) {
+        if let qualifier, let table = aliases[qualifier.lowercased()] {
+            candidates = columnNamesProvider([table])
+                .filter { $0.lowercased().hasPrefix(partial) }
+                .sorted()
+                .map { Candidate(display: $0, insertText: $0, impliedFromTable: nil, detail: "COLUMN · \(table)") }
+        } else if precedingWordExpectsIdentifier(before: identifierCheckLocation) {
             // Right after FROM/JOIN/etc, list every table immediately —
             // even with nothing typed yet — rather than waiting for a
             // prefix to filter against.
             candidates = tableNamesProvider()
                 .filter { $0.lowercased().hasPrefix(partial) }
                 .sorted()
-                .map { Candidate(display: $0, insertText: $0, impliedFromTable: nil) }
+                .map { Candidate(display: $0, insertText: $0, impliedFromTable: nil, detail: "TABLE") }
         } else {
             guard let wordRange, wordRange.length > 0 else {
                 hide()
                 return
             }
             let keywordMatches = SQLSyntaxHighlighter.keywords
-                .filter { $0.hasPrefix(partial) }
-                .map { Candidate(display: $0.uppercased(), insertText: $0.uppercased(), impliedFromTable: nil) }
+                .filter { partial.count >= 2 && $0.hasPrefix(partial) }
+                .map { Candidate(display: $0.uppercased(), insertText: $0.uppercased(), impliedFromTable: nil, detail: "KEYWORD") }
 
             let tables = referencedTableNames()
             let columnMatches: [Candidate]
@@ -180,16 +231,18 @@ final class SQLCompletionController {
                 // whatever tables it references.
                 columnMatches = columnNamesProvider(tables)
                     .filter { $0.lowercased().hasPrefix(partial) }
-                    .map { Candidate(display: $0, insertText: $0, impliedFromTable: nil) }
+                    .map { Candidate(display: $0, insertText: $0, impliedFromTable: nil, detail: "COLUMN") }
             } else {
                 // No FROM yet — offer every known column, qualified by
                 // table, and wire up the auto-FROM side effect.
                 columnMatches = allColumnsProvider()
                     .filter { $0.column.lowercased().hasPrefix(partial) || $0.table.lowercased().hasPrefix(partial) }
-                    .map { Candidate(display: "\($0.table).\($0.column)", insertText: $0.column, impliedFromTable: $0.table) }
+                    .map { Candidate(display: "\($0.table).\($0.column)", insertText: $0.column, impliedFromTable: $0.table, detail: "COLUMN") }
             }
-            candidates = (keywordMatches + columnMatches)
-                .sorted { $0.display.localizedCaseInsensitiveCompare($1.display) == .orderedAscending }
+            candidates = (columnMatches + keywordMatches).sorted {
+                if $0.detail != $1.detail { return $0.detail != "KEYWORD" }
+                return $0.display.localizedCaseInsensitiveCompare($1.display) == .orderedAscending
+            }
         }
         // Nothing left to suggest once the only match is exactly what's
         // already typed (e.g. right after accepting one).
@@ -226,7 +279,7 @@ final class SQLCompletionController {
         let caretRange = NSRange(location: NSMaxRange(range), length: 0)
         let screenRect = textView.firstRect(forCharacterRange: caretRange, actualRange: nil)
         completionAnchor = NSMaxRange(range)
-        popup.show(candidates: candidates.map(\.display), at: NSPoint(x: screenRect.minX, y: screenRect.minY), parent: window)
+        popup.show(items: candidates.map { CompletionPopup.Item(title: $0.display, detail: $0.detail) }, at: NSPoint(x: screenRect.minX, y: screenRect.minY), parent: window)
     }
 
     private func acceptCompletion() {
@@ -288,6 +341,19 @@ final class SQLCompletionController {
         }
         guard start < location else { return nil }
         return NSRange(location: start, length: location - start)
+    }
+
+    private func qualifierBeforeDot(at location: Int) -> String? {
+        let text = textView.string as NSString
+        guard location > 0, text.substring(with: NSRange(location: location - 1, length: 1)) == "." else { return nil }
+        var start = location - 1
+        while start > 0 {
+            let character = text.substring(with: NSRange(location: start - 1, length: 1))
+            guard character.rangeOfCharacter(from: .alphanumerics.union(CharacterSet(charactersIn: "_"))) != nil else { break }
+            start -= 1
+        }
+        guard start < location - 1 else { return nil }
+        return text.substring(with: NSRange(location: start, length: location - start - 1))
     }
 
     private func precedingWordExpectsIdentifier(before location: Int) -> Bool {

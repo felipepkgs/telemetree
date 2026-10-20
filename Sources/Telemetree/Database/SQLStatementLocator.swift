@@ -14,6 +14,7 @@ enum SQLStatementLocator {
     }
 
     private static let stringRegex = try! NSRegularExpression(pattern: #"'([^'\\]|\\.)*'|"([^"\\]|\\.)*""#)
+    private static let singleStringRegex = try! NSRegularExpression(pattern: #"'([^'\\]|\\.)*'"#)
     private static let lineCommentRegex = try! NSRegularExpression(pattern: #"--[^\n]*"#)
     private static let blockCommentRegex = try! NSRegularExpression(pattern: #"/\*[\s\S]*?\*/"#)
 
@@ -70,9 +71,9 @@ enum SQLStatementLocator {
         return all.last(where: { $0.range.location <= location }) ?? all.first
     }
 
-    static func maskingLiteralsAndComments(in sql: String) -> String {
+    static func maskingLiteralsAndComments(in sql: String, preserveDoubleQuotes: Bool = false) -> String {
         let fullRange = NSRange(location: 0, length: (sql as NSString).length)
-        let ranges = maskedRanges(in: sql, fullRange: fullRange)
+        let ranges = maskedRanges(in: sql, fullRange: fullRange, preserveDoubleQuotes: preserveDoubleQuotes)
         let masked = NSMutableString(string: sql)
         let source = sql as NSString
         for range in ranges {
@@ -91,9 +92,33 @@ enum SQLStatementLocator {
         result.append(Statement(range: range, text: text))
     }
 
-    private static func maskedRanges(in sql: String, fullRange: NSRange) -> [NSRange] {
-        [stringRegex, lineCommentRegex, blockCommentRegex]
+    private static func maskedRanges(in sql: String, fullRange: NSRange, preserveDoubleQuotes: Bool = false) -> [NSRange] {
+        let basic = [preserveDoubleQuotes ? singleStringRegex : stringRegex, lineCommentRegex, blockCommentRegex]
             .flatMap { $0.matches(in: sql, range: fullRange) }
             .map(\.range)
+        return basic + dollarQuoteRanges(in: sql, excluding: basic)
+    }
+
+    private static func dollarQuoteRanges(in sql: String, excluding basic: [NSRange]) -> [NSRange] {
+        let source = sql as NSString
+        var ranges: [NSRange] = []
+        var offset = 0
+        while offset < source.length {
+            let found = source.range(of: "$", range: NSRange(location: offset, length: source.length - offset))
+            guard found.location != NSNotFound else { break }
+            offset = found.location + 1
+            if basic.contains(where: { NSLocationInRange(found.location, $0) }) { continue }
+            let end = source.range(of: "$", range: NSRange(location: offset, length: source.length - offset))
+            guard end.location != NSNotFound else { break }
+            let name = source.substring(with: NSRange(location: offset, length: end.location - offset))
+            guard name.isEmpty || (name.first?.isLetter == true && name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" })) else { continue }
+            let marker = "$\(name)$"
+            let closeStart = end.location + 1
+            let closing = source.range(of: marker, range: NSRange(location: closeStart, length: source.length - closeStart))
+            guard closing.location != NSNotFound else { continue }
+            ranges.append(NSRange(location: found.location, length: NSMaxRange(closing) - found.location))
+            offset = NSMaxRange(closing)
+        }
+        return ranges
     }
 }

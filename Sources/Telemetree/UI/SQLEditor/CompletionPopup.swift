@@ -10,21 +10,45 @@ import AppKit
 /// actually typed.
 @MainActor
 final class CompletionPopup {
+    struct Item {
+        let title: String
+        let detail: String
+    }
     private let window: NSWindow
     private let stackView = NSStackView()
     private let outerStack = NSStackView()
-    private(set) var candidates: [String] = []
+    private(set) var candidates: [Item] = []
     private(set) var selectedIndex = 0
-    private var rowLabels: [NSTextField] = []
+    private var rowViews: [NSView] = []
+    var onAccept: ((Int) -> Void)?
+
+    private final class CandidateRowView: NSView {
+        let title: String
+        let detail: String
+        let selected: Bool
+        var onPress: (() -> Void)?
+
+        init(title: String, detail: String, selected: Bool) {
+            self.title = title
+            self.detail = detail
+            self.selected = selected
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func isAccessibilityElement() -> Bool { true }
+        override func accessibilityRole() -> NSAccessibility.Role? { .button }
+        override func accessibilityLabel() -> String? { "\(title), \(detail)" }
+        override func accessibilityValue() -> Any? { selected ? "Selected" : nil }
+        override func accessibilityPerformPress() -> Bool { onPress?(); return true }
+        override func mouseDown(with event: NSEvent) { onPress?() }
+    }
 
     private static let maxVisibleRows = 8
-    private static let rowHeight: CGFloat = 20
+    private static let rowHeight: CGFloat = 26
 
     var isVisible: Bool { window.isVisible }
-
-    var selectedCandidate: String? {
-        candidates.indices.contains(selectedIndex) ? candidates[selectedIndex] : nil
-    }
 
     init() {
         window = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
@@ -41,7 +65,7 @@ final class CompletionPopup {
         background.layer?.cornerRadius = DesignTokens.radiusMD
         background.layer?.masksToBounds = true
         background.layer?.borderWidth = DesignTokens.borderWidth
-        background.layer?.borderColor = DesignTokens.border.cgColor
+        background.layer?.borderColor = DesignTokens.midnight.separator.cgColor
 
         stackView.orientation = .vertical
         stackView.alignment = .width
@@ -88,13 +112,13 @@ final class CompletionPopup {
 
     /// `screenPoint` is the top-left corner the popup should hang from —
     /// typically just below the caret, in screen coordinates.
-    func show(candidates: [String], at screenPoint: NSPoint, parent: NSWindow) {
-        self.candidates = candidates
+    func show(items: [Item], at screenPoint: NSPoint, parent: NSWindow) {
+        self.candidates = items
         selectedIndex = 0
         rebuildRows()
 
         let size = outerStack.fittingSize
-        window.setContentSize(NSSize(width: max(size.width, 160), height: size.height))
+        window.setContentSize(NSSize(width: max(size.width, 310), height: size.height))
         window.setFrameTopLeftPoint(screenPoint)
 
         if window.parent !== parent {
@@ -112,30 +136,43 @@ final class CompletionPopup {
     func moveSelection(by delta: Int) {
         guard !candidates.isEmpty else { return }
         selectedIndex = (selectedIndex + delta + candidates.count) % candidates.count
-        updateHighlight()
+        rebuildRows()
     }
 
     private func rebuildRows() {
-        rowLabels.forEach { $0.removeFromSuperview() }
-        rowLabels.removeAll()
-        for candidate in candidates.prefix(Self.maxVisibleRows) {
-            let label = NSTextField(labelWithString: candidate)
-            label.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-            label.drawsBackground = true
-            label.backgroundColor = .clear
-            label.translatesAutoresizingMaskIntoConstraints = false
-            label.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
-            stackView.addArrangedSubview(label)
-            rowLabels.append(label)
-        }
-        updateHighlight()
-    }
-
-    private func updateHighlight() {
-        for (i, label) in rowLabels.enumerated() {
-            let selected = i == selectedIndex
-            label.backgroundColor = selected ? .selectedContentBackgroundColor : .clear
-            label.textColor = selected ? .selectedMenuItemTextColor : .labelColor
+        rowViews.forEach { stackView.removeArrangedSubview($0); $0.removeFromSuperview() }
+        rowViews.removeAll()
+        let firstIndex = min(max(0, selectedIndex - Self.maxVisibleRows + 1), max(0, candidates.count - Self.maxVisibleRows))
+        for index in firstIndex..<min(firstIndex + Self.maxVisibleRows, candidates.count) {
+            let candidate = candidates[index]
+            let row = CandidateRowView(title: candidate.title, detail: candidate.detail, selected: index == selectedIndex)
+            row.onPress = { [weak self] in self?.onAccept?(index) }
+            row.wantsLayer = true
+            row.layer?.cornerRadius = 4
+            row.layer?.backgroundColor = index == selectedIndex ? NSColor.selectedContentBackgroundColor.cgColor : NSColor.clear.cgColor
+            let title = NSTextField(labelWithString: candidate.title)
+            title.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+            title.textColor = index == selectedIndex ? .selectedMenuItemTextColor : .labelColor
+            title.lineBreakMode = .byTruncatingMiddle
+            let detail = NSTextField(labelWithString: candidate.detail)
+            detail.font = .systemFont(ofSize: 10, weight: .medium)
+            detail.textColor = index == selectedIndex ? .selectedMenuItemTextColor : .secondaryLabelColor
+            for field in [title, detail] {
+                field.translatesAutoresizingMaskIntoConstraints = false
+                row.addSubview(field)
+            }
+            row.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                row.heightAnchor.constraint(equalToConstant: Self.rowHeight),
+                row.widthAnchor.constraint(equalToConstant: 290),
+                title.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 7),
+                title.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                title.trailingAnchor.constraint(lessThanOrEqualTo: detail.leadingAnchor, constant: -12),
+                detail.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -7),
+                detail.centerYAnchor.constraint(equalTo: row.centerYAnchor)
+            ])
+            stackView.addArrangedSubview(row)
+            rowViews.append(row)
         }
     }
 }

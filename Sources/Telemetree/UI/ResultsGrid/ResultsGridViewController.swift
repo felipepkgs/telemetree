@@ -2,6 +2,16 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
+private final class ResultsGridRowView: NSTableRowView {
+    var selectionColor: NSColor = .selectedContentBackgroundColor
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard isSelected else { return }
+        selectionColor.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 1), xRadius: 4, yRadius: 4).fill()
+    }
+}
+
 @MainActor
 final class ResultsGridViewController: NSViewController {
     private let appState: AppState
@@ -45,6 +55,7 @@ final class ResultsGridViewController: NSViewController {
     private var foreignKeysByColumn: [String: ForeignKeyReference] = [:]
     private var foreignKeyFetchKey: String?
     private var tableBrowseContext: TableBrowseContext?
+    private var currentPalette = DesignTokens.midnight
 
     /// Editing is only actually safe once the primary key columns are
     /// both known AND present in the current result set — a SELECT that
@@ -210,15 +221,23 @@ final class ResultsGridViewController: NSViewController {
     }
 
     private func applyFont() {
-        dataFont = appState.fontPreferences.font
-        tableView.rowHeight = max(20, dataFont.pointSize + 8)
+        dataFont = appState.fontPreferences.choice.font(size: min(max(appState.fontPreferences.size, 12), 13))
+        tableView.rowHeight = max(22, dataFont.pointSize + 8)
         tableView.reloadData()
     }
 
     private func applyTheme(_ theme: Theme) {
+        currentPalette = theme.palette
+        view.wantsLayer = true
+        view.layer?.backgroundColor = theme.palette.editor.cgColor
+        scrollView.drawsBackground = false
+        tableView.backgroundColor = theme.palette.editor
         statusBar.layer?.backgroundColor = theme.barFill.cgColor
         statusBar.layer?.borderColor = theme.barBorder.cgColor
         statusBar.layer?.borderWidth = 1
+        statusLabel.textColor = theme.palette.secondaryText
+        messageLabel.textColor = theme.palette.secondaryText
+        tableView.reloadData()
     }
 
     private func bindActiveDocument() {
@@ -621,6 +640,12 @@ final class ResultsGridViewController: NSViewController {
 }
 
 extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate {
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let rowView = ResultsGridRowView()
+        rowView.selectionColor = currentPalette.selection
+        return rowView
+    }
+
     func numberOfRows(in tableView: NSTableView) -> Int {
         result.rows.count
     }
@@ -684,7 +709,7 @@ extension ResultsGridViewController: NSTableViewDataSource, NSTableViewDelegate 
         let reference = foreignKeysByColumn[result.columns[columnIndex]]
         textField.font = dataFont
         textField.stringValue = value.displayString
-        textField.textColor = value.isNull ? .tertiaryLabelColor : (reference != nil ? .linkColor : .labelColor)
+        textField.textColor = value.isNull ? currentPalette.secondaryText : (reference != nil ? currentPalette.accent : currentPalette.text)
         textField.isEditable = canEditCurrentResult
         if let reference, !value.isNull {
             cell.toolTip = "\(value.displayString) — ⌥-click to view in \(reference.referencedTable)"

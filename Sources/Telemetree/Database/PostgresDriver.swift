@@ -110,6 +110,19 @@ final class PostgresDatabaseConnection: DatabaseConnection {
         return result.rows.compactMap { $0.first?.displayString }
     }
 
+    func tableDefinition(table: String, inDatabase database: String) async throws -> String {
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let result = try await execute(sql: """
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = '\(escapedTable)'
+            ORDER BY ordinal_position
+            """)
+        return result.rows.map { row in
+            "\(row[0].displayString)  \(row[1].displayString)  \(row[2].displayString == "YES" ? "NULL" : "NOT NULL")\(row[3].isNull ? "" : "  DEFAULT \(row[3].displayString)")"
+        }.joined(separator: "\n")
+    }
+
     func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {
         let escapedTable = table.replacingOccurrences(of: "'", with: "''")
         let result = try await execute(sql: """

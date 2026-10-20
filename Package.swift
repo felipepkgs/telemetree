@@ -37,6 +37,7 @@ let package = Package(
                 .copy("Resources/Icons"),
                 .copy("Resources/Fonts")
             ]
-        )
+        ),
+        .testTarget(name: "TelemetreeTests", dependencies: ["Telemetree"])
     ]
 )

@@ -1,11 +1,16 @@
 import AppKit
+import Combine
 
 @MainActor
 final class MainWindowController: NSWindowController {
     private let appState: AppState
     private let sidebarVC: SidebarViewController
+    private let workspaceVC: NSSplitViewController
+    private var chooserVC: ConnectionChooserViewController?
+    private var switchChooserWindowController: NSWindowController?
     private var queryHistoryController: QueryHistoryWindowController?
     private var commandPaletteController: CommandPaletteWindowController?
+    private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
         self.appState = appState
@@ -16,6 +21,7 @@ final class MainWindowController: NSWindowController {
             defer: false
         )
         window.title = "Telemetree"
+        window.backgroundColor = appState.themeStore.current.palette.window
         window.minSize = NSSize(width: 900, height: 600)
         window.isRestorable = false
         window.center()
@@ -32,9 +38,14 @@ final class MainWindowController: NSWindowController {
 
         splitViewController.addSplitViewItem(sidebarItem)
         splitViewController.addSplitViewItem(workspaceItem)
+        self.workspaceVC = splitViewController
 
         super.init(window: window)
-        window.contentViewController = splitViewController
+        appState.themeStore.$current
+            .receive(on: DispatchQueue.main)
+            .sink { [weak window] theme in window?.backgroundColor = theme.palette.window }
+            .store(in: &cancellables)
+        showConnectionChooser(nil)
     }
 
     required init?(coder: NSCoder) {
@@ -51,7 +62,43 @@ final class MainWindowController: NSWindowController {
     }
 
     @objc func focusGlobalSearch(_ sender: Any?) {
-        sidebarVC.focusSearch()
+        if window?.contentViewController === workspaceVC { sidebarVC.focusSearch() }
+        else { showConnectionChooser(nil) }
+    }
+
+    @objc func showConnectionChooser(_ sender: Any?) {
+        if window?.contentViewController === workspaceVC {
+            presentSwitchChooser()
+            return
+        }
+        let chooser = ConnectionChooserViewController(appState: appState) { [weak self] in
+            guard let self else { return }
+            self.window?.contentViewController = self.workspaceVC
+            self.chooserVC = nil
+        }
+        chooserVC = chooser
+        window?.contentViewController = chooser
+    }
+
+    private func presentSwitchChooser() {
+        guard let window, switchChooserWindowController == nil else { return }
+        let chooser = ConnectionChooserViewController(
+            appState: appState,
+            showsCancelButton: true,
+            onOpen: { [weak self] in self?.dismissSwitchChooser() },
+            onCancel: { [weak self] in self?.dismissSwitchChooser() }
+        )
+        let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.title = "Switch Connection or Database"
+        sheet.contentViewController = chooser
+        switchChooserWindowController = NSWindowController(window: sheet)
+        window.beginSheet(sheet)
+    }
+
+    private func dismissSwitchChooser() {
+        guard let sheet = switchChooserWindowController?.window else { return }
+        sheet.sheetParent?.endSheet(sheet)
+        switchChooserWindowController = nil
     }
 
     @objc func selectDocumentTab(_ sender: NSMenuItem) {

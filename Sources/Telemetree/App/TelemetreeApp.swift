@@ -33,6 +33,8 @@ final class TelemetreeApp: NSObject, NSApplicationDelegate {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "New Query", action: #selector(MainWindowController.newQuery(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "Close Tab", action: #selector(MainWindowController.closeActiveTab(_:)), keyEquivalent: "w")
+        let switchItem = fileMenu.addItem(withTitle: "Switch Connection or Database…", action: #selector(MainWindowController.showConnectionChooser(_:)), keyEquivalent: "k")
+        switchItem.keyEquivalentModifierMask = [.command, .shift]
         fileMenu.addItem(.separator())
         let paletteItem = fileMenu.addItem(withTitle: "Command Palette…", action: #selector(MainWindowController.showCommandPalette(_:)), keyEquivalent: "p")
         paletteItem.keyEquivalentModifierMask = [.command, .shift]

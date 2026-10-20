@@ -7,7 +7,7 @@ enum SQLFormatter {
         "union", "join", "on", "and", "or"
     ]
 
-    static func format(_ sql: String) -> String {
+    static func format(_ sql: String, dialect: DatabaseEngine = .mysql) -> String {
         let characters = Array(sql)
         var result = ""
         var index = 0
@@ -22,7 +22,9 @@ enum SQLFormatter {
                 continue
             }
 
-            if character == "-", index + 1 < characters.count, characters[index + 1] == "-" {
+            let dashComment = character == "-" && index + 1 < characters.count && characters[index + 1] == "-"
+                && (dialect != .mysql || index + 2 == characters.count || characters[index + 2].isWhitespace)
+            if dashComment || (dialect == .mysql && character == "#") {
                 appendSpaceIfNeeded(to: &result, needed: needsSpace)
                 while index < characters.count {
                     let current = characters[index]
@@ -30,6 +32,23 @@ enum SQLFormatter {
                     index += 1
                     if current == "\n" { break }
                 }
+                needsSpace = true
+                continue
+            }
+
+            if dialect == .postgres, character == "$",
+               let markerEnd = characters[(index + 1)...].firstIndex(of: "$"),
+               characters[(index + 1)..<markerEnd].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
+                let marker = Array(characters[index...markerEnd])
+                var closing = markerEnd + 1
+                while closing + marker.count <= characters.count,
+                      Array(characters[closing..<(closing + marker.count)]) != marker {
+                    closing += 1
+                }
+                guard closing + marker.count <= characters.count else { return sql }
+                appendSpaceIfNeeded(to: &result, needed: needsSpace)
+                result += String(characters[index..<(closing + marker.count)])
+                index = closing + marker.count
                 needsSpace = true
                 continue
             }

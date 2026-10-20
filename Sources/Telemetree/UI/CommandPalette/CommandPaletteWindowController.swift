@@ -20,6 +20,7 @@ final class CommandPaletteWindowController: NSWindowController {
 
     private var allItems: [PaletteItem] = []
     private var filteredItems: [PaletteItem] = []
+    private var tableSearchGeneration = 0
 
     private let searchField = NSSearchField()
     private let tableView = NSTableView()
@@ -123,9 +124,6 @@ final class CommandPaletteWindowController: NSWindowController {
         items.append(PaletteItem(id: "action:new-query", title: "New Query", category: "Action") { [weak appState] in
             appState?.newDocument()
         })
-        items.append(PaletteItem(id: "action:run-query", title: "Run Current Query", category: "Action") { [weak appState] in
-            appState?.executeCurrentSQL()
-        })
         items.append(PaletteItem(id: "action:query-history", title: "Query History", category: "Action") { [weak self] in
             self?.openHistory()
         })
@@ -137,6 +135,24 @@ final class CommandPaletteWindowController: NSWindowController {
 
         allItems = items
         refilter(query: searchField.stringValue)
+        tableSearchGeneration += 1
+        let generation = tableSearchGeneration
+        if let profile = appState.selectedProfile,
+           let connection = appState.connectionManager.connection(for: profile.id) {
+            let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
+            Task {
+                guard let tables = try? await connection.listTables(inDatabase: database),
+                      generation == tableSearchGeneration,
+                      appState.selectedProfile?.id == profile.id,
+                      (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
+                allItems += tables.map { table in
+                    PaletteItem(id: "table:\(profile.id):\(database):\(table.name)", title: table.name, category: "Table · \(database)") { [appState] in
+                        appState.browseTable(profile: profile, database: database, table: table.name)
+                    }
+                }
+                refilter(query: searchField.stringValue)
+            }
+        }
     }
 
     // MARK: - Usage tracking ("most used")

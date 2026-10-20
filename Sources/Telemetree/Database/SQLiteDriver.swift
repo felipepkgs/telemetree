@@ -109,8 +109,8 @@ final class SQLiteDatabaseConnection: DatabaseConnection, @unchecked Sendable {
     func listDatabases() async throws -> [String] {
         // SQLite has no multi-database-per-server concept the way
         // MySQL/Postgres do — one file is the whole "database". A single
-        // synthetic entry keeps the sidebar's connection -> database ->
-        // tables tree structurally the same across all three engines.
+        // synthetic entry lets the workspace chooser treat it like the
+        // server-backed engines without inventing a multi-file session.
         [fileName]
     }
 
@@ -124,6 +124,12 @@ final class SQLiteDatabaseConnection: DatabaseConnection, @unchecked Sendable {
         // PRAGMA table_info's 2nd column ("name") is the column name;
         // the 1st ("cid") is just its ordinal index.
         return result.rows.compactMap { $0.count > 1 ? $0[1].displayString : nil }
+    }
+
+    func tableDefinition(table: String, inDatabase database: String) async throws -> String {
+        let escapedTable = table.replacingOccurrences(of: "'", with: "''")
+        let result = try await execute(sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '\(escapedTable)'")
+        return result.rows.first?.first?.displayString ?? "No definition available."
     }
 
     func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {

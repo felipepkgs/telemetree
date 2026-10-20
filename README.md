@@ -31,17 +31,22 @@ and a genuinely native AppKit interface, keyboard-first throughout.
   referenced row in the other table, backed by real schema introspection.
 - **Session &amp; activity monitor.** Live view of a MySQL/PostgreSQL
   server's active connections and queries, auto-refreshing.
-- **Command palette** (`⌘⇧P`) — jump to any query, connection, or
-  action without leaving the keyboard.
+- **Command palette** (`⌘⇧P`) — jump to queries, connections, active-database
+  tables, or actions without leaving the keyboard.
 - **Query history.** Every run is logged — searchable, reopenable as a new
   document.
 - **Color labels.** An 8-color palette for connections, queries and
   folders, from each row's context menu.
 - **GitHub-style SQL colors.** GitHub Light and GitHub Dark palettes, plus
   Geist Mono / SF Mono / Menlo at 10–18pt, all live in Preferences.
-- **SQL autocomplete** — keywords, real table/column names scoped to the
-  statement under your cursor, Tab-only accept. Native AppKit popup, no
-  third-party dependency.
+- **SQL autocomplete** — keywords and schema-backed table/column names,
+  including common aliases, scoped to the statement under your cursor.
+  Tab-only accept; no third-party editor dependency.
+- **Workspace chooser** — select a connection and database on launch;
+  switch later from the status bar or with `⌘⇧K`. Tables appear directly
+  under the active connection rather than in a deep database tree.
+- **Quick structure and formatting** — inspect a table definition in a
+  popover or format just the selected/current statement.
 - **Numbered pagination.** Large tables page in 100 rows at a time
   ("1-100 of 10,000"), instead of pulling an entire result set into memory.
 - **Export CSV/JSON**, alongside plain copy-to-clipboard.

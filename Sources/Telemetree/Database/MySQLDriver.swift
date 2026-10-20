@@ -69,6 +69,18 @@ final class MySQLDatabaseConnection: DatabaseConnection {
         }
     }
 
+    func selectDatabase(_ database: String) async throws {
+        do {
+            _ = try await connection.simpleQuery("USE \(DatabaseEngine.mysql.quoteIdentifier(database))").get()
+        } catch {
+            let friendly = FriendlyError.message(for: error)
+            if FriendlyError.isConnectionLost(error) {
+                throw DatabaseError.connectionLost(friendly)
+            }
+            throw DatabaseError.queryFailed(friendly)
+        }
+    }
+
     func listDatabases() async throws -> [String] {
         let result = try await execute(sql: "SHOW DATABASES")
         return result.rows.compactMap { $0.first?.displayString }
@@ -82,6 +94,11 @@ final class MySQLDatabaseConnection: DatabaseConnection {
     func listColumns(table: String, inDatabase database: String) async throws -> [String] {
         let result = try await execute(sql: "SHOW COLUMNS FROM \(DatabaseEngine.mysql.quoteIdentifier(database)).\(DatabaseEngine.mysql.quoteIdentifier(table))")
         return result.rows.compactMap { $0.first?.displayString }
+    }
+
+    func tableDefinition(table: String, inDatabase database: String) async throws -> String {
+        let result = try await execute(sql: "SHOW CREATE TABLE \(DatabaseEngine.mysql.quoteIdentifier(database)).\(DatabaseEngine.mysql.quoteIdentifier(table))")
+        return result.rows.first?.last?.displayString ?? "No definition available."
     }
 
     func primaryKeyColumns(table: String, inDatabase database: String) async throws -> [String] {

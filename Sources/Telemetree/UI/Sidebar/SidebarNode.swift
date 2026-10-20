@@ -7,7 +7,6 @@ final class SidebarNode {
     enum Kind {
         case sectionHeader(String)
         case connection(ConnectionProfile)
-        case database(ConnectionProfile, name: String)
         case table(ConnectionProfile, database: String, table: DatabaseTable)
         case queryFolder(QueryFolder)
         case queryDocument(QueryDocument)
@@ -39,7 +38,6 @@ final class SidebarNode {
         switch kind {
         case .sectionHeader(let text): return text
         case .connection(let profile): return profile.name
-        case .database(_, let name): return name
         case .table(_, _, let table): return table.name
         case .queryFolder(let folder): return folder.name
         case .queryDocument(let document): return document.name
@@ -49,7 +47,7 @@ final class SidebarNode {
 
     var isExpandable: Bool {
         switch kind {
-        case .sectionHeader, .connection, .database, .queryFolder: return true
+        case .sectionHeader, .connection, .queryFolder: return true
         case .table, .queryDocument, .placeholder: return false
         }
     }

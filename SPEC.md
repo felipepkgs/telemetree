@@ -1,19 +1,5 @@
 # Telemetree — Spec Addenda
 
-## Workspace hierarchy and appearance update
-
-- Replaced the Vapor variants with two native app appearances: Light and
-  Dark. Removed the theme menu, carbon weave, and animated status-dot styling.
-- SQL token colors are now GitHub Light and GitHub Dark palettes; editor
-  font and size preferences remain independent.
-- Added a persistent bottom status bar showing the active connection,
-  database, connection/switch state, and last query duration (including
-  failed executions and page changes).
-- Renamed the global search field and menu action to “Search Everywhere.”
-- Kept chrome neutral and compact, using restrained borders and accent color
-  to clarify the tab, editor, results, and status hierarchy.
-- No new screenshots or version bump in this implementation pass.
-
 ## Product direction: persistent SQL workbench
 
 The product is evolving from a TablePlus alternative toward a focused,
@@ -60,154 +46,11 @@ Explain plans → formatter/diagnostics → comparison. This is a research
 direction, not authorization to start a specific feature. App icon and
 system appearance decisions remain separate open items.
 
-## Next development specifications
+## UI requirements and iteration plan
 
-Scope requested: DataGrip-inspired workstreams 1, 2, and 4 above, plus a
-visible active-database context. No screenshots or release/version bump
-until this scoped work is complete.
-
-### Priority 0: make the active database unmistakable
-
-**Problem found in current code:** `ConnectionManager.currentDatabases` tracks
-the selected database per connection, and clicking a database calls
-`AppState.selectDatabase`. The active workspace has no prominent context
-indicator, however, and `selectDatabase` silently returns on a failed `USE`.
-Users can therefore be unsure which database an unqualified query will use,
-or whether a switch actually succeeded.
-
-**Behavior:** show the active query's connection name and effective database
-in a persistent workspace context strip beside/under the query tabs. It must
-update when the active query or its connection changes, distinguish
-connection from database, and display connecting/switching/disconnected
-states. For MySQL, show the session's selected schema (including a pending
-switch and a visible error if `USE` fails). For PostgreSQL show the database
-bound to that connection; for SQLite show the active file/database name.
-Never imply a new context until the driver confirms it. The affordance should
-let the user switch/focus the corresponding sidebar connection/database.
-
-**Implementation:** derive the label from the active `OpenDocumentState`'s
-`connectionProfileID`, `ConnectionProfile`, connection state, and the
-existing per-profile `currentDatabases`. Add a small AppKit workspace
-component (likely adjacent to `DocumentTabBarView`) observing those existing
-Combine publishers; don't create another source of truth. Replace the silent
-failure path in `AppState.selectDatabase` with explicit switching/error
-state surfaced in this component. Guard async completion against the active
-profile changing while `USE` is in flight. Keep context per connection,
-because the underlying DB session is shared by query documents.
-
-**Acceptance:** with two saved profiles and multiple databases, changing
-the active query updates the indicator; selecting another MySQL database
-shows pending then the confirmed schema; failed `USE` leaves the prior
-confirmed context visible and presents an error; disconnect/reconnect clears
-then restores context accurately. Postgres and SQLite display their bound
-database/file without offering MySQL-style `USE`.
-
-**Implemented locally:** the tab strip now has an accessible connection /
-database / connection-state line. Table browsing labels its database scope;
-MySQL switches show pending state and keep the previous database until
-`USE` succeeds. Errors are visible in red with the underlying message as a
-tooltip. PostgreSQL's explorer only lists the database bound to its profile;
-SQLite identifies its database file. Unsupported switches explain how to
-change connection context rather than silently doing nothing.
-
-### Priority 1: schema-aware SQL assistance
-
-**Behavior:** improve the existing completion and metadata path rather than
-replace the editor. Suggestions must use the active query's connection and
-database, support tables/columns/aliases in the statement, and remain
-statement-scoped. Add quick documentation/DDL for the object under the caret
-and concise inline diagnostics for known unknown tables/columns. Metadata
-that has not been loaded must not be presented as a confirmed error.
-
-**Implementation:** extend the existing `SQLCompletionController`, metadata
-providers, and `DatabaseConnection` APIs; share cached metadata per
-connection/database and invalidate on reconnect or database switch. Keep
-engine-specific introspection in each driver. Add a native AppKit quick-doc
-popover and diagnostics using the existing editor/highlighting components.
-No parser framework or dependency for the first pass; document parser limits
-and avoid destructive auto-fixes.
-
-**Acceptance:** suggestions and docs match the active database after
-switching; stale async metadata cannot overwrite the new context; unresolved
-metadata yields no false error; completion handles quoted identifiers and
-multiple statements without leaking names across statements.
-
-**Implemented locally:** existing schema-backed completion now invalidates
-and reloads on profile/database changes, and failures no longer leave a
-previous connection's schema active. A `Structure` editor action shows the
-columns for the table under the caret. Once the table list is successfully
-loaded, unknown unqualified table names receive a subtle orange underline;
-quoted strings/comments and the first CTE name are excluded. This is a
-conservative first diagnostic, not a full SQL parser or DDL viewer.
-
-### Priority 2: first-class table data browsing
-
-**Behavior:** keep table browsing distinct from arbitrary query results.
-Add a filter field and server-side sorting/filtering for a selected table;
-retain pagination, inline editing, copy/export, and foreign-key navigation.
-The UI must disclose when a filter/order is applied server-side. Never
-silently fetch an unbounded table or imply that client-side sorting covers
-rows outside the loaded page.
-
-**Implementation:** introduce the smallest table-browser state alongside
-the existing result-grid state: selected table, filter text, sort column and
-direction, page/limit. Generate SELECTs with driver-specific identifier
-quoting and bound filter values; keep arbitrary SQL execution unchanged.
-Reuse existing `DatabaseConnection`, `QueryResult`, pagination, and result
-grid where possible. Only enable inline edits when the existing primary-key
-and single-table checks pass.
-
-**Acceptance:** filtering/sorting applies across the server-side result,
-pagination remains bounded and resets when criteria change, identifiers are
-quoted per engine, filter values are never interpolated unsafely, and the UI
-distinguishes table-browser actions from local result-grid sorting.
-
-**Implemented locally:** right-click a cell in a sidebar-opened table to
-filter for or exclude its value; click a result-column header to sort on the
-server. Filters and order are part of the table-browser query, remain paged,
-and can be cleared from the cell context menu. Values are encoded as
-engine-specific hex literals, not interpolated as executable text. Arbitrary
-SQL result sorting remains client-side and is labeled separately.
-
-### Priority 3: SQL formatting and low-risk inspections (research item 4)
-
-**Behavior:** add a format-current-statement/selection action with a preview
-or undoable editor change, plus a small set of dependable diagnostics such
-as unresolved table/column names when schema metadata is complete. Do not
-format or diagnose SQL while required metadata is incomplete; no automatic
-execution or schema mutation.
-
-**Implementation:** first evaluate a small dialect-aware formatter that can
-run locally without adding an unnecessary dependency. Keep formatter rules
-minimal (keyword case, indentation, line breaks), preserve comments/string
-literals, and make the edit undoable. Diagnostics should reuse the schema
-metadata from Priority 1 rather than implement a separate catalog/parser.
-
-**Acceptance:** format selection/current statement only, preserve literals
-and comments, undo restores exact prior text, and diagnostics avoid reporting
-unknown names from unrefreshed or incomplete metadata.
-
-**Implemented locally:** the editor's Format action operates on the
-selection or statement under the caret and remains undoable. It uppercases
-recognized SQL keywords and lays out common clauses while preserving quoted
-text and comments. The schema warning pass reports only unknown unqualified
-table references after a successful table-list load; column diagnostics,
-quick documentation, and DDL viewing remain open scope.
-
-### Delivery sequence
-
-1. Active-database indicator and truthful switch/error states (user issue).
-2. Table browsing filters/sorting, using existing pagination and grid.
-3. Schema metadata/completion/quick documentation and diagnostics.
-4. Formatter and inspections, built on the same metadata path.
-
-Keep each step independently buildable and usable. Run local Debug builds
-only on this machine. No screenshots, version bump, or release are part of
-this implementation pass; those wait until the scoped work is reviewed.
-
-The original product spec (MVP scope, milestones, architecture) was given at
-project start and isn't reproduced here. This file tracks additions made
-after that point, so they survive context resets.
+The visual-only Midnight implementation brief is in `UI-REFERENCE-SPEC.md`;
+deferred UI/UX behavior work is tracked separately in `todo.md`. Technical
+implementation and verification history remain in this file.
 
 ## Post-M4 fixes and Preferences
 
@@ -274,7 +117,7 @@ everywhere `.systemFont`/`.monospacedSystemFont` was previously used.
 ## Cross-app theme system
 
 This section records the former Vapor implementation and is superseded by
-“Workspace hierarchy and appearance update” above.
+the current appearance baseline in `UI-REFERENCE-SPEC.md`.
 
 The user maintains a shared visual language across their apps, originally
 authored for **GhostBar** (a Touch Bar overlay utility) as an 8-theme

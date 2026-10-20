@@ -88,6 +88,9 @@ final class AppState: ObservableObject {
         guard let index = openDocumentIDs.firstIndex(of: documentID) else { return }
         openDocumentIDs.remove(at: index)
         openStates[documentID] = nil
+        if queryStore.isTemporaryDocument(documentID) {
+            queryStore.delete(documentID)
+        }
         if activeDocumentID == documentID {
             let fallbackIndex = min(index, openDocumentIDs.count - 1)
             activeDocumentID = fallbackIndex >= 0 ? openDocumentIDs[fallbackIndex] : nil
@@ -115,6 +118,10 @@ final class AppState: ObservableObject {
 
     func browseTable(profile: ConnectionProfile, database: String, table: String) {
         let context = TableBrowseContext(profileID: profile.id, database: database, table: table)
+        if activeState?.tableBrowseContext != context {
+            let document = queryStore.createTemporaryDocument(name: "Browse · \(table)", connectionProfileID: profile.id)
+            openDocument(document.id)
+        }
         runQuery(Self.tableBrowserSQL(context, engine: profile.engine), connectionProfileID: profile.id, tableBrowseContext: context)
     }
 
@@ -167,51 +174,53 @@ final class AppState: ObservableObject {
         queryStore.setConnection(documentID, connectionProfileID: connectionProfileID)
     }
 
-    /// Clicking a database in the sidebar sets it as that connection's
-    /// default schema (a real `USE`, server-side — session state on the
-    /// shared connection, so it applies no matter which document/tab is
-    /// active) so an unqualified `SELECT * FROM orders` resolves without
-    /// having to write `` `database`.`orders` `` every time.
-    func selectDatabase(_ database: String, profileID: UUID) {
-        setActiveConnection(profileID)
-        guard let profile = connectionManager.profiles.first(where: { $0.id == profileID }) else { return }
+    @discardableResult
+    func selectDatabase(_ database: String, profileID: UUID) async -> Bool {
+        guard let profile = connectionManager.profiles.first(where: { $0.id == profileID }) else { return false }
         switch profile.engine {
         case .postgres:
             pendingDatabases[profileID] = nil
-            databaseSwitchErrors[profileID] = database == profile.database
-                ? nil
-                : "PostgreSQL connections are bound to one database. Change the connection profile to switch databases."
-            return
+            guard database == profile.database else {
+                databaseSwitchErrors[profileID] = "PostgreSQL connections are bound to one database. Change the connection profile to switch databases."
+                return false
+            }
+            databaseSwitchErrors[profileID] = nil
+            setActiveConnection(profileID)
+            return true
         case .sqlite:
             pendingDatabases[profileID] = nil
-            databaseSwitchErrors[profileID] = database == URL(fileURLWithPath: profile.filePath).lastPathComponent
-                ? nil
-                : "SQLite connections are bound to one database file."
-            return
+            guard database == URL(fileURLWithPath: profile.filePath).lastPathComponent else {
+                databaseSwitchErrors[profileID] = "SQLite connections are bound to one database file."
+                return false
+            }
+            databaseSwitchErrors[profileID] = nil
+            setActiveConnection(profileID)
+            return true
         case .mysql:
             break
         }
         pendingDatabases[profileID] = database
         databaseSwitchErrors[profileID] = nil
-        Task {
-            if !connectionManager.connectedIDs.contains(profileID) {
-                await connectionManager.connect(profile)
-            }
-            guard let connection = connectionManager.connection(for: profileID) else {
-                databaseSwitchErrors[profileID] = connectionManager.connectionErrors[profileID] ?? "Could not connect."
-                pendingDatabases[profileID] = nil
-                return
-            }
-            do {
-                _ = try await connection.execute(sql: "USE \(profile.engine.quoteIdentifier(database))")
-                guard pendingDatabases[profileID] == database else { return }
-                connectionManager.setCurrentDatabase(database, for: profileID)
-                pendingDatabases[profileID] = nil
-            } catch {
-                guard pendingDatabases[profileID] == database else { return }
-                databaseSwitchErrors[profileID] = error.localizedDescription
-                pendingDatabases[profileID] = nil
-            }
+        if !connectionManager.connectedIDs.contains(profileID) {
+            await connectionManager.connect(profile)
+        }
+        guard let connection = connectionManager.connection(for: profileID) else {
+            databaseSwitchErrors[profileID] = connectionManager.connectionErrors[profileID] ?? "Could not connect."
+            pendingDatabases[profileID] = nil
+            return false
+        }
+        do {
+            try await connection.selectDatabase(database)
+            guard pendingDatabases[profileID] == database else { return false }
+            connectionManager.setCurrentDatabase(database, for: profileID)
+            pendingDatabases[profileID] = nil
+            setActiveConnection(profileID)
+            return true
+        } catch {
+            guard pendingDatabases[profileID] == database else { return false }
+            databaseSwitchErrors[profileID] = error.localizedDescription
+            pendingDatabases[profileID] = nil
+            return false
         }
     }
 
@@ -480,7 +489,9 @@ final class AppState: ObservableObject {
     }
 
     private func saveWorkspace() {
-        let snapshot = WorkspaceSnapshot(openDocumentIDs: openDocumentIDs, activeDocumentID: activeDocumentID)
+        let persistentIDs = openDocumentIDs.filter { !queryStore.isTemporaryDocument($0) }
+        let activeID = activeDocumentID.flatMap { queryStore.isTemporaryDocument($0) ? nil : $0 }
+        let snapshot = WorkspaceSnapshot(openDocumentIDs: persistentIDs, activeDocumentID: activeID)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: workspaceURL, options: .atomic)
     }

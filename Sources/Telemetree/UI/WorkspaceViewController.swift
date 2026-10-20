@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 /// The tab bar, SQL editor, and results grid for the active connection's
 /// query workspace.
@@ -8,6 +9,7 @@ final class WorkspaceViewController: NSViewController {
     private let tabBar: DocumentTabBarView
     private let statusBar: WorkspaceStatusBarView
     private let splitViewController = NSSplitViewController()
+    private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
         self.appState = appState
@@ -26,6 +28,18 @@ final class WorkspaceViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        appState.themeStore.$current
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] theme in
+                self?.view.layer?.backgroundColor = theme.palette.window.cgColor
+                self?.tabBar.layer?.backgroundColor = theme.palette.window.cgColor
+                self?.splitViewController.view.layer?.backgroundColor = theme.palette.editor.cgColor
+            }
+            .store(in: &cancellables)
+        view.wantsLayer = true
+        tabBar.wantsLayer = true
+        splitViewController.view.wantsLayer = true
 
         splitViewController.splitView.isVertical = false
 

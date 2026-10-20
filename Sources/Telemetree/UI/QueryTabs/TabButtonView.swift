@@ -21,9 +21,7 @@ final class TabButtonView: NSView {
 
         let label = NSTextField(labelWithString: title)
         label.font = FontLibrary.sans(12, weight: isActive ? .semibold : .regular)
-        if isActive {
-            label.textColor = theme.activeSegmentText
-        }
+        label.textColor = isActive ? theme.activeSegmentText : theme.palette.secondaryText
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
 

@@ -14,6 +14,7 @@ final class SQLEditorViewController: NSViewController {
     private let saveAsButton = NSButton(title: "Save As…", target: nil, action: nil)
     private let formatButton = NSButton(title: "Format", target: nil, action: nil)
     private let inspectButton = NSButton(title: "Structure", target: nil, action: nil)
+    private let structurePopover = NSPopover()
     private let progressIndicator = NSProgressIndicator()
     private let syntaxHighlighter = SQLSyntaxHighlighter()
     private let toolbar = NSView()
@@ -71,6 +72,8 @@ final class SQLEditorViewController: NSViewController {
 
     private func setupUI() {
         runButton.bezelStyle = .rounded
+        runButton.bezelColor = .systemGreen
+        runButton.contentTintColor = .white
         runButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
         runButton.imagePosition = .imageLeading
         runButton.target = self
@@ -287,10 +290,8 @@ final class SQLEditorViewController: NSViewController {
         let connectionName = appState.selectedProfile?.name
         titleLabel.stringValue = connectionName.map { "\(document.name) — \($0)" } ?? document.name
         runButton.isEnabled = !state.isExecuting
-        // Only offer this for a query that's never been given a real
-        // name — once it has one, this is just a rename, which the
-        // sidebar's own double-click-to-rename already covers.
         saveAsButton.isHidden = document.name != QueryStore.untitledQueryName
+            && !appState.queryStore.isTemporaryDocument(document.id)
     }
 
     private func refreshTableNamesIfNeeded() {
@@ -305,7 +306,7 @@ final class SQLEditorViewController: NSViewController {
             return
         }
         let database = appState.connectionManager.currentDatabases[profile.id] ?? profile.database
-        let key = "\(profile.id)|\(database)"
+        let key = "\(profile.id)|\(database)|\(ObjectIdentifier(connection as AnyObject))"
         guard cachedTablesKey != key else { return }
         cachedTablesKey = key
         cachedTablesLoaded = false
@@ -318,20 +319,12 @@ final class SQLEditorViewController: NSViewController {
         Task {
             do {
                 let tables = try await connection.listTables(inDatabase: database).map(\.name)
-                guard appState.selectedProfile?.id == profile.id,
+                guard cachedTablesKey == key,
+                      appState.selectedProfile?.id == profile.id,
                       (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
                 cachedTableNames = tables
                 cachedTablesLoaded = true
-                // Warm the cache sequentially because drivers share one
-                // connection and issue one request at a time.
-                for table in tables {
-                    let tableKey = table.lowercased()
-                    guard cachedColumnsByTable[tableKey] == nil else { continue }
-                    let columns = (try? await connection.listColumns(table: table, inDatabase: database)) ?? []
-                    guard appState.selectedProfile?.id == profile.id,
-                          (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
-                    cachedColumnsByTable[tableKey] = columns
-                }
+                guard cachedTablesKey == key else { return }
                 applyHighlighting()
             } catch {
                 guard cachedTablesKey == key else { return }
@@ -382,7 +375,8 @@ final class SQLEditorViewController: NSViewController {
         Task {
             defer { pendingColumnFetches.remove(key) }
             let columns = (try? await connection.listColumns(table: table, inDatabase: database)) ?? []
-            guard appState.selectedProfile?.id == profile.id,
+            guard cachedTablesKey == "\(profile.id)|\(database)|\(ObjectIdentifier(connection as AnyObject))",
+                  appState.selectedProfile?.id == profile.id,
                   (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
             cachedColumnsByTable[key] = columns
             // The popup may still be open waiting on exactly this table's
@@ -404,26 +398,15 @@ final class SQLEditorViewController: NSViewController {
                 ?? NSRange(location: 0, length: (textView.string as NSString).length)
         guard range.length > 0 else { return }
         let source = (textView.string as NSString).substring(with: range)
-        textView.insertText(SQLFormatter.format(source), replacementRange: range)
+        textView.insertText(SQLFormatter.format(source, dialect: appState.selectedProfile?.engine ?? .mysql), replacementRange: range)
     }
 
     @objc private func inspectTableAtCaret() {
-        let source = textView.string as NSString
-        let selection = textView.selectedRange()
-        guard source.length > 0 else { return }
-        var cursor = min(selection.location, source.length - 1)
-        if selection.length > 0 { cursor = selection.location }
-        func isIdentifierCharacter(_ index: Int) -> Bool {
-            guard index >= 0, index < source.length else { return false }
-            let value = source.character(at: index)
-            return value == 95 || (value >= 48 && value <= 57) || (value >= 65 && value <= 90) || (value >= 97 && value <= 122)
-        }
-        guard isIdentifierCharacter(cursor) else { return }
-        var start = cursor
-        var end = cursor + 1
-        while isIdentifierCharacter(start - 1) { start -= 1 }
-        while isIdentifierCharacter(end) { end += 1 }
-        let table = source.substring(with: NSRange(location: start, length: end - start))
+        let caret = textView.selectedRange().location
+        guard let reference = SQLCompletionController.tableReferences(in: textView.string).first(where: {
+            $0.range.location <= caret && caret <= NSMaxRange($0.range)
+        }) else { return }
+        let table = reference.name
         guard let profile = appState.selectedProfile,
               let connection = appState.connectionManager.connection(for: profile.id) else {
             showStructure(message: "Connect to a database first.", table: table)
@@ -434,8 +417,10 @@ final class SQLEditorViewController: NSViewController {
             : (appState.connectionManager.currentDatabases[profile.id] ?? profile.database)
         Task {
             do {
-                let columns = try await connection.listColumns(table: table, inDatabase: database)
-                showStructure(message: columns.isEmpty ? "No columns found." : columns.joined(separator: "\n"), table: table)
+                let definition = try await connection.tableDefinition(table: table, inDatabase: database)
+                guard appState.selectedProfile?.id == profile.id,
+                      (appState.connectionManager.currentDatabases[profile.id] ?? profile.database) == database else { return }
+                showStructure(message: definition, table: table)
             } catch {
                 showStructure(message: error.localizedDescription, table: table)
             }
@@ -443,11 +428,24 @@ final class SQLEditorViewController: NSViewController {
     }
 
     private func showStructure(message: String, table: String) {
-        guard let window = view.window else { return }
-        let alert = NSAlert()
-        alert.messageText = "Structure: \(table)"
-        alert.informativeText = message
-        alert.beginSheetModal(for: window)
+        let container = NSViewController()
+        let text = NSTextView()
+        text.frame = NSRect(x: 0, y: 0, width: 520, height: 320)
+        text.isVerticallyResizable = true
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        text.string = "\(table)\n\n\(message)"
+        text.isEditable = false
+        text.font = appState.fontPreferences.font
+        text.textContainerInset = NSSize(width: 12, height: 12)
+        let scroll = NSScrollView()
+        scroll.documentView = text
+        scroll.hasVerticalScroller = true
+        container.view = scroll
+        container.preferredContentSize = NSSize(width: 520, height: 320)
+        structurePopover.contentViewController = container
+        structurePopover.behavior = .transient
+        structurePopover.show(relativeTo: inspectButton.bounds, of: inspectButton, preferredEdge: .maxY)
     }
 
     /// Kept alive for the duration of the sheet — NSWindowController
@@ -536,9 +534,12 @@ final class SQLEditorViewController: NSViewController {
         guard let pending = pendingSaveAs, let sheetWindow = saveAsWindowController?.window else { return }
         let name = pending.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty {
-            appState.queryStore.rename(pending.documentID, to: name)
-            if let folderID = pending.folderPopup?.selectedItem?.representedObject as? UUID {
-                appState.queryStore.move(pending.documentID, toFolder: folderID)
+            let folderID = pending.folderPopup?.selectedItem?.representedObject as? UUID
+            if appState.queryStore.isTemporaryDocument(pending.documentID) {
+                appState.queryStore.saveTemporaryDocument(pending.documentID, name: name, folderID: folderID)
+            } else {
+                appState.queryStore.rename(pending.documentID, to: name)
+                if let folderID { appState.queryStore.move(pending.documentID, toFolder: folderID) }
             }
             updateHeader()
         }
@@ -603,14 +604,25 @@ final class SQLEditorViewController: NSViewController {
                 .underlineColor: NSColor.systemOrange
             ], range: reference.range)
         }
+        let qualifiedColumns = try! NSRegularExpression(pattern: #"\b([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b"#)
+        for match in qualifiedColumns.matches(in: masked, range: fullRange) {
+            let qualifier = source.substring(with: match.range(at: 1))
+            let column = source.substring(with: match.range(at: 2))
+            let aliases = SQLCompletionController.tableAliases(in: sql, at: match.range.location)
+            guard let table = aliases[qualifier.lowercased()],
+                  let columns = cachedColumnsByTable[table.lowercased()],
+                  !columns.contains(where: { $0.caseInsensitiveCompare(column) == .orderedSame }) else { continue }
+            textStorage.addAttributes([
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+                .underlineColor: NSColor.systemOrange
+            ], range: match.range(at: 2))
+        }
     }
 
     /// Shows which statement Run would send by tinting its background —
     /// only when the caret has no active selection, since a real
     /// selection already reads clearly via the system's own selection
     /// color and already IS what Run would send.
-    private static let statementHighlightColor = NSColor.systemGreen.withAlphaComponent(0.16)
-
     private func updateStatementHighlight() {
         guard let textStorage = textView.textStorage else { return }
         let fullRange = NSRange(location: 0, length: textStorage.length)
@@ -629,7 +641,7 @@ final class SQLEditorViewController: NSViewController {
         let text = textView.string as NSString
         let highlightRange = Self.trimmingLeadingWhitespace(statement.range, in: text)
         guard highlightRange.length > 0 else { return }
-        textStorage.addAttribute(.backgroundColor, value: Self.statementHighlightColor, range: highlightRange)
+        textStorage.addAttribute(.backgroundColor, value: appState.themeStore.current.palette.selection.withAlphaComponent(0.55), range: highlightRange)
     }
 
     private static func trimmingLeadingWhitespace(_ range: NSRange, in text: NSString) -> NSRange {
@@ -643,9 +655,18 @@ final class SQLEditorViewController: NSViewController {
     }
 
     private func applyTheme(_ theme: Theme) {
+        view.wantsLayer = true
+        scrollView.drawsBackground = false
+        textView.drawsBackground = true
+        textView.backgroundColor = theme.palette.editor
+        textView.insertionPointColor = theme.palette.accent
+        textView.selectedTextAttributes = [.backgroundColor: theme.palette.selection, .foregroundColor: theme.palette.text]
+        titleLabel.textColor = theme.palette.secondaryText
+        view.layer?.backgroundColor = theme.palette.editor.cgColor
         toolbar.layer?.backgroundColor = theme.barFill.cgColor
         toolbar.layer?.borderColor = theme.barBorder.cgColor
         toolbar.layer?.borderWidth = 1
+        updateStatementHighlight()
     }
 }
 
